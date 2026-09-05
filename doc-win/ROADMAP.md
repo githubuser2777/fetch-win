@@ -250,13 +250,20 @@ Phase 10: Documentation & Release
 - **Acceptance**: Frame rendering, math, and string semantics match Phase 0 baseline with zero behavioral difference.
 
 #### Phase 2: Config & Logo Module Extraction
-- **Status**: Pending
-- **Files**: `src/config/config.h`, `src/config/config.c`, `src/logo/logo.h`, `src/logo/logo.c`
-- **Scope**:
-  - Extract config parsing and option mapping into `src/config/config.c`.
-  - Extract fastfetch logo loading and logo cell processing into `src/logo/logo.c`.
-  - Verify CLI flags and config options continue to function.
-- **Acceptance**: Config and logo unit tests pass.
+- **Status**: **COMPLETED**
+- **Files**: `src/config/config.h`, `src/config/config.c`, `src/logo/logo.h`, `src/logo/logo.c`, `tests/test_phase2.c`
+- **Deliverables**:
+  - `src/config/config.h/.c`: Extracted plain-text config deserializer, inline hint stripping, settings clamping, and field ordering.
+  - `src/logo/logo.h/.c`: Extracted fastfetch logo invoker, custom logo loader (`# distro:` metadata), fallback art, codepoint cell splitting, and distro color scheme mapping.
+  - `fetch.c`: Stripped duplicate config and logo implementations while maintaining existing CLI/config precedence.
+  - `tests/test_phase2.c`: 130 automated unit assertions testing isolated config and logo modules.
+  - `Makefile`: Updated modular sources and added `test_phase2` test target.
+- **Results**:
+  - Phase 0 baseline regression tests: 98 / 98 passed (100% success).
+  - Phase 1 isolated unit tests: 67 / 67 passed (100% success).
+  - Phase 2 isolated unit tests: 130 / 130 passed (100% success).
+  - Clean native build of `fetch.exe` on Windows with MinGW-w64.
+- **Acceptance**: Config parsing, appearance options, and logo behaviors match Phase 0 baseline with zero regression.
 
 #### Phase 3: Platform Abstraction & POSIX Backend
 - **Status**: Pending
