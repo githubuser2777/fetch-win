@@ -267,18 +267,19 @@ Phase 10: Documentation & Release
 
 #### Phase 3: Platform Abstraction & POSIX Backend
 - **Status**: **COMPLETED**
-- **Files**: `src/platform/platform.h`, `src/platform/platform_posix.c`, `fetch.c`, `tests/test_phase3.c`, `Makefile`
+- **Files**: `src/platform/platform.h`, `src/platform/platform_posix.c`, `src/platform/platform_stub.c`, `fetch.c`, `tests/test_phase3.c`, `Makefile`
 - **Deliverables**:
-  - `src/platform/platform.h`: Platform-neutral abstraction covering terminal lifecycle, terminal sizing, resize detection, input polling & events, interruption states, sleep timing, atomic frame output, and platform path resolution.
-  - `src/platform/platform_posix.c`: Shared POSIX console backend implementing raw mode via termios, ioctl sizing, signal-safe flags for SIGINT/SIGTERM/SIGWINCH, idempotent terminal cleanup, unconsumed keypress shell passthrough, and SGR mouse drag/release delta tracking.
+  - `src/platform/platform.h`: Platform-neutral abstraction covering terminal lifecycle, terminal sizing, resize detection, input polling & events, interruption states, sleep timing, atomic frame output, and platform path resolution. Test injection controls guarded behind `FETCH_TESTING`.
+  - `src/platform/platform_posix.c`: Shared POSIX console backend implementing raw mode via termios, ioctl sizing, signal-safe flags for SIGINT/SIGTERM/SIGWINCH, idempotent terminal cleanup, honest VT/mouse capability reporting, unconsumed keypress shell passthrough, and SGR mouse drag/release delta tracking.
+  - `src/platform/platform_stub.c`: Temporary Phase 3 platform shim preserving clean native Windows compilation without compiling POSIX code on Windows.
   - `fetch.c`: Stripped direct POSIX terminal/runtime dependencies; refactored main loop to drive output, events, and lifecycle exclusively through the platform abstraction interface.
-  - `tests/test_phase3.c`: 57 automated unit assertions verifying terminal lifecycle idempotency, dimension queries, resize handling, signal-safe interruption states, mouse drag delta math, keypress passthrough, timing/output wrappers, and path resolution.
-  - `Makefile`: Updated modular sources and added `test_phase3` test target.
+  - `tests/test_phase3.c`: 60 automated unit assertions verifying terminal lifecycle idempotency, honest capability detection, dimension queries, resize handling, signal-safe interruption states, mouse drag delta math, keypress passthrough, timing/output wrappers, and path resolution.
+  - `Makefile`: Updated modular sources with conditional platform source selection (`platform_stub.c` on Windows, `platform_posix.c` on POSIX) and added `test_phase3` test target with `-DFETCH_TESTING`.
 - **Results**:
   - Phase 0 baseline regression tests: 98 / 98 passed (100% success).
   - Phase 1 isolated unit tests: 67 / 67 passed (100% success).
   - Phase 2 isolated unit tests: 130 / 130 passed (100% success).
-  - Phase 3 platform unit tests: 57 / 57 passed (100% success).
+  - Phase 3 platform unit tests: 60 / 60 passed (100% success).
   - Clean native build and CLI smoke test verification on Windows with MinGW-w64.
 - **Acceptance**: Terminal lifecycle, signal safety, keypress passthrough, and animation behaviors match Phase 0 baseline with zero regression.
 
