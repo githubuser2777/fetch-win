@@ -14,11 +14,15 @@ ifeq ($(OS),Windows_NT)
   EXE_EXT = .exe
   RUN_PREFIX =
   RM = cmd /c del /f /q 2>nul
+  # Phase 3: platform_win.c is not yet implemented (deferred to Phase 4).
+  # Use temporary platform stub to avoid compiling POSIX code on Windows.
+  PLATFORM_SRC = src/platform/platform_stub.c
 else
   VERSION := $(shell cat VERSION 2>/dev/null || echo 0.1.0)
   EXE_EXT =
   RUN_PREFIX = ./
   RM = rm -f
+  PLATFORM_SRC = src/platform/platform_posix.c
 endif
 
 CFLAGS ?= -O2
@@ -37,7 +41,7 @@ ifeq ($(OS),Windows_NT)
   CFLAGS += -I tests/include
 endif
 
-SRCS = fetch.c src/core/common.c src/renderer/renderer.c src/config/config.c src/logo/logo.c src/platform/platform_posix.c
+SRCS = fetch.c src/core/common.c src/renderer/renderer.c src/config/config.c src/logo/logo.c $(PLATFORM_SRC)
 
 fetch: $(SRCS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_VERSION='"$(VERSION)"' -DFETCH_CODENAME='"$(CODENAME)"' -DFETCH_ARCH='"$(UNAME_M)"' -DFETCH_OS='"$(UNAME_S)"' -I. -o $@ $^ $(LDLIBS)
@@ -56,7 +60,7 @@ test: test_baseline$(EXE_EXT) test_phase1$(EXE_EXT) test_phase2$(EXE_EXT) test_p
 	$(RUN_PREFIX)test_phase3$(EXE_EXT)
 
 test_baseline$(EXE_EXT): tests/test_baseline.c $(SRCS)
-	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_VERSION='"$(VERSION)"' -DFETCH_CODENAME='"$(CODENAME)"' -DFETCH_ARCH='"$(UNAME_M)"' -DFETCH_OS='"$(UNAME_S)"' -I. -I tests/include tests/test_baseline.c src/core/common.c src/renderer/renderer.c src/config/config.c src/logo/logo.c src/platform/platform_posix.c -o $@ $(LDLIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_VERSION='"$(VERSION)"' -DFETCH_CODENAME='"$(CODENAME)"' -DFETCH_ARCH='"$(UNAME_M)"' -DFETCH_OS='"$(UNAME_S)"' -I. -I tests/include tests/test_baseline.c src/core/common.c src/renderer/renderer.c src/config/config.c src/logo/logo.c $(PLATFORM_SRC) -o $@ $(LDLIBS)
 
 test_phase1$(EXE_EXT): tests/test_phase1.c src/core/common.c src/renderer/renderer.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -I. tests/test_phase1.c src/core/common.c src/renderer/renderer.c -o $@ -lm
@@ -65,6 +69,6 @@ test_phase2$(EXE_EXT): tests/test_phase2.c src/core/common.c src/renderer/render
 	$(CC) $(CFLAGS) $(LDFLAGS) -I. tests/test_phase2.c src/core/common.c src/renderer/renderer.c src/config/config.c src/logo/logo.c -o $@ $(LDLIBS)
 
 test_phase3$(EXE_EXT): tests/test_phase3.c src/platform/platform_posix.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -I. tests/test_phase3.c src/platform/platform_posix.c -o $@ $(LDLIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_TESTING -I. tests/test_phase3.c src/platform/platform_posix.c -o $@ $(LDLIBS)
 
 .PHONY: install clean test

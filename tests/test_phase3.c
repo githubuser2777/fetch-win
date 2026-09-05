@@ -1,4 +1,7 @@
 #define _GNU_SOURCE
+#ifndef FETCH_TESTING
+#define FETCH_TESTING
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,6 +55,49 @@ static void test_terminal_lifecycle(void) {
     TEST_ASSERT(res == 0, "platform_terminal_init accepts NULL caps pointer");
     platform_terminal_cleanup();
     TEST_ASSERT(1, "Cleanup after re-initialization completes cleanly");
+
+    /* Test honest capability reporting under different TERM settings */
+    char orig_term[128] = "";
+    char *cur_term = getenv("TERM");
+    if (cur_term) strncpy(orig_term, cur_term, sizeof(orig_term) - 1);
+
+#ifdef _WIN32
+    _putenv("TERM=dumb");
+#else
+    setenv("TERM", "dumb", 1);
+#endif
+    platform_term_caps_t caps_dumb;
+    platform_terminal_init(&caps_dumb);
+    TEST_ASSERT(caps_dumb.supports_vt == 0, "TERM=dumb reports supports_vt = 0");
+    TEST_ASSERT(caps_dumb.supports_mouse == 0, "TERM=dumb reports supports_mouse = 0");
+    platform_terminal_cleanup();
+
+#ifdef _WIN32
+    _putenv("TERM=vt100");
+#else
+    setenv("TERM", "vt100", 1);
+#endif
+    platform_term_caps_t caps_vt100;
+    platform_terminal_init(&caps_vt100);
+    TEST_ASSERT(caps_vt100.supports_mouse == 0, "TERM=vt100 reports supports_mouse = 0");
+    platform_terminal_cleanup();
+
+    /* Restore original TERM */
+    if (orig_term[0]) {
+#ifdef _WIN32
+        char env_buf[200];
+        snprintf(env_buf, sizeof(env_buf), "TERM=%s", orig_term);
+        _putenv(env_buf);
+#else
+        setenv("TERM", orig_term, 1);
+#endif
+    } else {
+#ifdef _WIN32
+        _putenv("TERM=");
+#else
+        unsetenv("TERM");
+#endif
+    }
 }
 
 /* -------------------------------------------------------------

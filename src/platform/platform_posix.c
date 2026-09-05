@@ -37,11 +37,27 @@ int platform_terminal_init(platform_term_caps_t *caps) {
   int stdout_tty = isatty(STDOUT_FILENO);
   int stdin_tty = isatty(STDIN_FILENO);
   int is_tty = stdout_tty && stdin_tty;
+  int supports_vt = 0;
+  int supports_mouse = 0;
+
+  if (is_tty) {
+    const char *term = getenv("TERM");
+    if (term && term[0] && strcmp(term, "dumb") != 0) {
+      supports_vt = 1;
+      /* Mouse tracking (SGR 1006) requires modern/xterm terminal capabilities */
+      if (strcmp(term, "vt100") != 0 &&
+          strcmp(term, "vt52") != 0 &&
+          strcmp(term, "vt220") != 0 &&
+          strncmp(term, "vanilla", 7) != 0) {
+        supports_mouse = 1;
+      }
+    }
+  }
 
   if (caps) {
     caps->is_tty = is_tty;
-    caps->supports_vt = is_tty;
-    caps->supports_mouse = is_tty;
+    caps->supports_vt = supports_vt;
+    caps->supports_mouse = supports_mouse;
   }
 
   /* Register signal handlers for interrupt and resize (flags only) */
@@ -68,10 +84,16 @@ int platform_terminal_init(platform_term_caps_t *caps) {
   }
 
   /* Hide cursor (?25l), enable mouse drag tracking (?1002h, ?1006h), clear screen */
-  if (stdout_tty) {
-    const char init_seq[] = "\033[?25l\033[?1002h\033[?1006h\033[2J";
-    ssize_t ret = write(STDOUT_FILENO, init_seq, sizeof(init_seq) - 1);
-    (void)ret;
+  if (supports_vt) {
+    if (supports_mouse) {
+      const char init_seq[] = "\033[?25l\033[?1002h\033[?1006h\033[2J";
+      ssize_t ret = write(STDOUT_FILENO, init_seq, sizeof(init_seq) - 1);
+      (void)ret;
+    } else {
+      const char init_seq[] = "\033[?25l\033[2J";
+      ssize_t ret = write(STDOUT_FILENO, init_seq, sizeof(init_seq) - 1);
+      (void)ret;
+    }
   }
 
   return 0;
@@ -134,13 +156,6 @@ static int s_ibuf_len = 0;
 static int s_mouse_dragging = 0;
 static int s_mouse_last_x = 0;
 static int s_mouse_last_y = 0;
-
-void platform_reset_input_state_for_test(void) {
-  s_ibuf_len = 0;
-  s_mouse_dragging = 0;
-  s_mouse_last_x = 0;
-  s_mouse_last_y = 0;
-}
 
 platform_input_event_t platform_parse_input_chunk(const char *buf, size_t len,
                                                   platform_mouse_event_t *mouse_event,
@@ -241,16 +256,26 @@ platform_input_event_t platform_parse_input_chunk(const char *buf, size_t len,
   return INPUT_NONE;
 }
 
+#ifdef FETCH_TESTING
 static int s_test_pending_avail = -1;
+#endif
 
 platform_input_event_t platform_poll_input(platform_mouse_event_t *mouse_event) {
   struct pollfd pfd = {.fd = STDIN_FILENO, .events = POLLIN};
 
-  while (s_ibuf_len > 0 || s_test_pending_avail >= 0 || poll(&pfd, 1, 0) > 0) {
+#ifdef FETCH_TESTING
+  int has_test_pending = (s_test_pending_avail >= 0);
+  int test_avail = s_test_pending_avail;
+#else
+  int has_test_pending = 0;
+  int test_avail = -1;
+#endif
+
+  while (s_ibuf_len > 0 || has_test_pending || poll(&pfd, 1, 0) > 0) {
     if (s_ibuf_len == 0) {
       int avail = 0;
-      if (s_test_pending_avail >= 0) {
-        avail = s_test_pending_avail;
+      if (has_test_pending) {
+        avail = test_avail;
       } else if (ioctl(STDIN_FILENO, FIONREAD, &avail) < 0 || avail <= 0) {
         break;
       }
@@ -376,7 +401,15 @@ int platform_detect_os_id(char *out, size_t outsz) {
   return 0;
 }
 
+#ifdef FETCH_TESTING
 /* --- Test Injections --- */
+
+void platform_reset_input_state_for_test(void) {
+  s_ibuf_len = 0;
+  s_mouse_dragging = 0;
+  s_mouse_last_x = 0;
+  s_mouse_last_y = 0;
+}
 
 void platform_set_interrupted_for_test(int val) {
   g_interrupted = val;
@@ -393,3 +426,4 @@ void platform_set_pending_bytes_for_test(int count) {
 int platform_get_pending_bytes_for_test(void) {
   return s_test_pending_avail;
 }
+#endif

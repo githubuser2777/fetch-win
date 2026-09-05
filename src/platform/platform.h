@@ -78,15 +78,6 @@ typedef struct {
 platform_input_event_t platform_poll_input(platform_mouse_event_t *mouse_event);
 
 /**
- * Parse an in-memory input buffer into mouse/key events.
- * Helper for testing and modular input processing.
- * Returns event type, fills mouse_event when applicable, and updates *consumed.
- */
-platform_input_event_t platform_parse_input_chunk(const char *buf, size_t len,
-                                                  platform_mouse_event_t *mouse_event,
-                                                  size_t *consumed);
-
-/**
  * Check if the program has received an interrupt signal (SIGINT or SIGTERM).
  * Returns 1 if interrupted, 0 otherwise.
  */
@@ -112,12 +103,17 @@ void platform_get_logo_path(char *out, size_t outsz);
  */
 int platform_detect_os_id(char *out, size_t outsz);
 
-/* --- Test Control Helpers (only used for unit test injection) --- */
+#ifdef FETCH_TESTING
+/* --- Test Control Helpers (guarded for test harness only) --- */
+platform_input_event_t platform_parse_input_chunk(const char *buf, size_t len,
+                                                  platform_mouse_event_t *mouse_event,
+                                                  size_t *consumed);
 void platform_set_interrupted_for_test(int val);
 void platform_set_resized_for_test(int val);
 void platform_reset_input_state_for_test(void);
 void platform_set_pending_bytes_for_test(int count);
 int  platform_get_pending_bytes_for_test(void);
+#endif
 
 #ifdef __cplusplus
 }
