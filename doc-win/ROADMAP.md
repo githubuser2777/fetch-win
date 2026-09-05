@@ -196,7 +196,7 @@ static atomic_bool g_interrupted = false;
 Phase 0: Baseline & Test Harness (COMPLETED)
    │
    ▼
-Phase 1: Core & Renderer Extraction
+Phase 1: Core & Renderer Extraction (COMPLETED)
    │
    ▼
 Phase 2: Config & Logo Extraction
@@ -236,13 +236,18 @@ Phase 10: Documentation & Release
   - **Results**: 98 / 98 passed (100% success) against unmodified upstream code.
 
 #### Phase 1: Core Utilities & Renderer Extraction
-- **Status**: Pending Review & Approval
-- **Files**: `src/core/common.h`, `src/core/common.c`, `src/renderer/renderer.h`, `src/renderer/renderer.c`
-- **Scope**:
-  - Extract UTF-8 and ANSI string utilities into `src/core/common.c`.
-  - Extract 3D point cloud generation, heightmapping, Blinn-Phong shading, and projection to `src/renderer/renderer.c`.
-  - Verify that unmodified `fetch.c` includes these modules and passes all baseline tests.
-- **Acceptance**: Frame rendering and math match Phase 0 baseline.
+- **Status**: **COMPLETED** (Commit [`1d287c3`](https://github.com/githubuser2777/fetch-win/commit/1d287c3))
+- **Files**: `src/core/common.h`, `src/core/common.c`, `src/renderer/renderer.h`, `src/renderer/renderer.c`, `tests/test_phase1.c`
+- **Deliverables**:
+  - `src/core/common.h/.c`: Extracted platform-independent UTF-8, ANSI escape decoding, cursor escape checks, string width, clipping, and alignment enums.
+  - `src/renderer/renderer.h/.c`: Extracted 3D point cloud generation, heightmapping, Blinn-Phong lighting, sub-cell depth buffering, and projection pipeline.
+  - `tests/test_phase1.c`: 67 automated assertions testing isolated `src/core` and `src/renderer` modules.
+  - `Makefile`: Updated modular source list and test targets.
+- **Results**:
+  - Phase 0 baseline regression tests: 98 / 98 passed (100% success).
+  - Phase 1 isolated unit tests: 67 / 67 passed (100% success).
+  - Clean native build on Windows with MinGW-w64.
+- **Acceptance**: Frame rendering, math, and string semantics match Phase 0 baseline with zero behavioral difference.
 
 #### Phase 2: Config & Logo Module Extraction
 - **Status**: Pending
