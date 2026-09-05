@@ -37,7 +37,7 @@ ifeq ($(OS),Windows_NT)
   CFLAGS += -I tests/include
 endif
 
-SRCS = fetch.c src/core/common.c src/renderer/renderer.c src/config/config.c src/logo/logo.c
+SRCS = fetch.c src/core/common.c src/renderer/renderer.c src/config/config.c src/logo/logo.c src/platform/platform_posix.c
 
 fetch: $(SRCS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_VERSION='"$(VERSION)"' -DFETCH_CODENAME='"$(CODENAME)"' -DFETCH_ARCH='"$(UNAME_M)"' -DFETCH_OS='"$(UNAME_S)"' -I. -o $@ $^ $(LDLIBS)
@@ -47,20 +47,24 @@ install: fetch
 	install -m 755 fetch $(DESTDIR)$(PREFIX)/bin/fetch
 
 clean:
-	-$(RM) fetch fetch.exe test_baseline test_baseline.exe test_phase1 test_phase1.exe test_phase2 test_phase2.exe
+	-$(RM) fetch fetch.exe test_baseline test_baseline.exe test_phase1 test_phase1.exe test_phase2 test_phase2.exe test_phase3 test_phase3.exe
 
-test: test_baseline$(EXE_EXT) test_phase1$(EXE_EXT) test_phase2$(EXE_EXT)
+test: test_baseline$(EXE_EXT) test_phase1$(EXE_EXT) test_phase2$(EXE_EXT) test_phase3$(EXE_EXT)
 	$(RUN_PREFIX)test_baseline$(EXE_EXT)
 	$(RUN_PREFIX)test_phase1$(EXE_EXT)
 	$(RUN_PREFIX)test_phase2$(EXE_EXT)
+	$(RUN_PREFIX)test_phase3$(EXE_EXT)
 
 test_baseline$(EXE_EXT): tests/test_baseline.c $(SRCS)
-	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_VERSION='"$(VERSION)"' -DFETCH_CODENAME='"$(CODENAME)"' -DFETCH_ARCH='"$(UNAME_M)"' -DFETCH_OS='"$(UNAME_S)"' -I. -I tests/include tests/test_baseline.c src/core/common.c src/renderer/renderer.c src/config/config.c src/logo/logo.c -o $@ $(LDLIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_VERSION='"$(VERSION)"' -DFETCH_CODENAME='"$(CODENAME)"' -DFETCH_ARCH='"$(UNAME_M)"' -DFETCH_OS='"$(UNAME_S)"' -I. -I tests/include tests/test_baseline.c src/core/common.c src/renderer/renderer.c src/config/config.c src/logo/logo.c src/platform/platform_posix.c -o $@ $(LDLIBS)
 
 test_phase1$(EXE_EXT): tests/test_phase1.c src/core/common.c src/renderer/renderer.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -I. tests/test_phase1.c src/core/common.c src/renderer/renderer.c -o $@ -lm
 
 test_phase2$(EXE_EXT): tests/test_phase2.c src/core/common.c src/renderer/renderer.c src/config/config.c src/logo/logo.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -I. tests/test_phase2.c src/core/common.c src/renderer/renderer.c src/config/config.c src/logo/logo.c -o $@ $(LDLIBS)
+
+test_phase3$(EXE_EXT): tests/test_phase3.c src/platform/platform_posix.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -I. tests/test_phase3.c src/platform/platform_posix.c -o $@ $(LDLIBS)
 
 .PHONY: install clean test

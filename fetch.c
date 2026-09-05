@@ -2,7 +2,6 @@
 #include <fcntl.h>
 #include <math.h>
 #include <stdint.h>
-#include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -15,7 +14,6 @@
 #include <sys/ioctl.h>
 #include <sys/statvfs.h>
 #include <sys/utsname.h>
-#include <termios.h>
 #include <unistd.h>
 #include <time.h>
 #include <limits.h>
@@ -35,41 +33,7 @@
 #include "src/renderer/renderer.h"
 #include "src/config/config.h"
 #include "src/logo/logo.h"
-
-static struct termios orig_termios;
-static int termios_saved = 0;
-
-static void cleanup(void) {
-  if (termios_saved)
-    tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
-  printf("\033[?1002l\033[?1006l\033[?25h");
-  fflush(stdout);
-}
-
-static void handle_signal(int sig) {
-  (void)sig;
-  cleanup();
-  _exit(0);
-}
-
-static volatile sig_atomic_t term_resized = 0;
-
-static void handle_winch(int sig) {
-  (void)sig;
-  term_resized = 1;
-}
-
-static void get_term_size(int *rows, int *cols) {
-  struct winsize ws;
-  *rows = 0;
-  *cols = 0;
-  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0) {
-    if (ws.ws_row > 0)
-      *rows = ws.ws_row;
-    if (ws.ws_col > 0)
-      *cols = ws.ws_col;
-  }
-}
+#include "src/platform/platform.h"
 
 #define GAP 2
 
@@ -2751,7 +2715,7 @@ int main(int argc, char **argv) {
 
   config_defaults();
   load_config();
-  get_term_size(&term_rows, &term_cols);
+  platform_get_term_size(&term_rows, &term_cols);
 
   // Shading: CLI flags, then config, then the ascii default
   if (!shading && config_shading[0])
@@ -2881,137 +2845,49 @@ int main(int argc, char **argv) {
   float hlx, hly, hlz;
   render_compute_half_vector(light_x, light_y, light_z, &hlx, &hly, &hlz);
 
-  signal(SIGINT, handle_signal);
-  signal(SIGTERM, handle_signal);
-  signal(SIGWINCH, handle_winch);
-  atexit(cleanup);
+  platform_term_caps_t caps;
+  platform_terminal_init(&caps);
 
   int fetch_start = show_info ? 1 : 0;
 
-  if (tcgetattr(STDIN_FILENO, &orig_termios) == 0) {
-    termios_saved = 1;
-    struct termios raw = orig_termios;
-    raw.c_lflag &= ~(ICANON | ECHO);
-    raw.c_cc[VMIN] = 0;
-    raw.c_cc[VTIME] = 0;
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
-  }
-
-  printf("\033[?25l\033[?1002h\033[?1006h\033[2J");
-  fflush(stdout);
-
   int mouse_dragging = 0;
-  int mouse_last_x = 0, mouse_last_y = 0;
   float drag_vx = 0.0f, drag_vy = 0.0f;
 
   for (int frame = 0; max_frames == 0 || frame < max_frames; frame++) {
-    // Read input: mouse events control rotation, any other key exits.
-    // Peek one byte first — only consume input if it's an escape (mouse).
-    // Non-escape bytes stay in the buffer so the shell gets the keypress.
+    if (platform_is_interrupted())
+      break;
+
     int should_break = 0;
-    struct pollfd pfd = {.fd = STDIN_FILENO, .events = POLLIN};
-    while (poll(&pfd, 1, 0) > 0) {
-      static char ibuf[128];
-      static int ibuf_len = 0;
-
-      if (ibuf_len == 0) {
-        // Check how many bytes are pending before reading.
-        // Mouse escapes are at least 9 bytes (\033[<0;1;1M).
-        // A single pending byte is a regular keypress — exit
-        // without consuming it so the shell gets it.
-        int avail = 0;
-        ioctl(STDIN_FILENO, FIONREAD, &avail);
-        if (avail <= 0) break;
-        if (avail == 1) {
-          // Almost certainly a keypress, not a mouse event.
-          // Leave it in the buffer for the shell.
-          should_break = 1;
-          break;
-        }
-        int n = read(STDIN_FILENO, ibuf, avail < (int)sizeof(ibuf) ? avail : (int)sizeof(ibuf));
-        if (n <= 0) { should_break = 1; break; }
-        ibuf_len = n;
-        if (ibuf[0] != '\033') {
-          ibuf_len = 0;
-          should_break = 1;
-          break;
-        }
-      } else {
-        int n = read(STDIN_FILENO, ibuf + ibuf_len, sizeof(ibuf) - ibuf_len);
-        if (n > 0) ibuf_len += n;
+    platform_mouse_event_t mev;
+    platform_input_event_t iev;
+    while ((iev = platform_poll_input(&mev)) != INPUT_NONE) {
+      if (iev == INPUT_EXIT_KEY) {
+        should_break = 1;
+        break;
       }
-
-      int i = 0;
-      while (i < ibuf_len) {
-        if (ibuf[i] == '\033') {
-          if (i + 2 >= ibuf_len) break;
-          if (ibuf[i+1] == '[' && ibuf[i+2] == '<') {
-            int j = i + 3;
-            int btn = 0, mx = 0, my = 0;
-            while (j < ibuf_len && ibuf[j] >= '0' && ibuf[j] <= '9')
-              btn = btn * 10 + (ibuf[j++] - '0');
-            if (j >= ibuf_len) break;
-            if (ibuf[j] == ';') j++;
-            while (j < ibuf_len && ibuf[j] >= '0' && ibuf[j] <= '9')
-              mx = mx * 10 + (ibuf[j++] - '0');
-            if (j >= ibuf_len) break;
-            if (ibuf[j] == ';') j++;
-            while (j < ibuf_len && ibuf[j] >= '0' && ibuf[j] <= '9')
-              my = my * 10 + (ibuf[j++] - '0');
-            if (j >= ibuf_len) break;
-            char trail = ibuf[j++];
-            if (trail != 'M' && trail != 'm') { i = j; continue; }
-
-            if (btn == 0 && trail == 'M') {
-              mouse_dragging = 1;
-              mouse_last_x = mx;
-              mouse_last_y = my;
-              drag_vx = 0.0f;
-              drag_vy = 0.0f;
-            } else if (btn == 32 && trail == 'M' && mouse_dragging) {
-              int dx = mx - mouse_last_x;
-              int dy = my - mouse_last_y;
-              drag_vy = -dx * 0.03f;
-              drag_vx = -dy * 0.03f;
-              B += drag_vy;
-              A += drag_vx;
-              mouse_last_x = mx;
-              mouse_last_y = my;
-            } else if (btn == 0 && trail == 'm') {
-              mouse_dragging = 0;
-            }
-            i = j;
-          } else {
-            i++;
-            while (i < ibuf_len && ibuf[i] < 0x40) i++;
-            if (i < ibuf_len) i++;
-          }
-        } else {
-          should_break = 1;
-          break;
-        }
+      if (iev == INPUT_MOUSE_DRAG) {
+        mouse_dragging = 1;
+        drag_vy = -mev.dx * 0.03f;
+        drag_vx = -mev.dy * 0.03f;
+        B += drag_vy;
+        A += drag_vx;
+      } else if (iev == INPUT_MOUSE_UP) {
+        mouse_dragging = 0;
       }
-      if (i > 0 && i < ibuf_len) {
-        memmove(ibuf, ibuf + i, ibuf_len - i);
-        ibuf_len -= i;
-      } else if (i >= ibuf_len) {
-        ibuf_len = 0;
-      }
-      if (should_break) break;
     }
-    if (should_break) break;
+    if (should_break || platform_is_interrupted())
+      break;
+
     // Handle terminal resize: recompute the same layout as startup
-    if (term_resized) {
-      term_resized = 0;
-      get_term_size(&term_rows, &term_cols);
+    if (platform_check_resize()) {
+      platform_get_term_size(&term_rows, &term_cols);
       int old_h = render_height, old_w = anim_width;
       int old_stacked = layout_stacked, old_clip = info_clip_cols;
       apply_layout(show_info);
       if (render_height != old_h || anim_width != old_w ||
           layout_stacked != old_stacked || info_clip_cols != old_clip) {
         K1 = 37.0f * logo_height / 36.0f;
-        printf("\033[2J");
-        fflush(stdout);
+        platform_write_output("\033[2J", 4);
       }
     }
     // Refresh fast dynamic fields every ~1 second (20 frames).
@@ -3071,7 +2947,7 @@ int main(int argc, char **argv) {
       out_cap = out_buf ? need : 0;
     }
     if (!out_buf) {
-      printf("\033[?25h");
+      platform_terminal_cleanup();
       return 1;
     }
     char *p = out_buf;
@@ -3171,12 +3047,11 @@ int main(int argc, char **argv) {
         *p++ = '\n';
       }
     }
-    if (write(STDOUT_FILENO, out_buf, p - out_buf) < 0)
+    if (platform_write_output(out_buf, p - out_buf) < 0)
       break;
-    usleep(50000);
+    platform_sleep_frame(50000);
   }
 
-  printf("\033[?25h");
-  fflush(stdout);
+  platform_terminal_cleanup();
   return 0;
 }
