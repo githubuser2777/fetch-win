@@ -207,7 +207,7 @@ int main(int argc, char **argv) {
     char fetch_cmd[] = ".\\fetch.exe";
 
     if (CreateProcessA(NULL, fetch_cmd, NULL, NULL, FALSE, CREATE_NEW_PROCESS_GROUP, NULL, NULL, &fetch_si, &fetch_pi)) {
-        Sleep(500); /* Allow fetch.exe to complete gather & register ctrl handler */
+        Sleep(1500); /* Allow fetch.exe to complete gather & register ctrl handler */
         GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, fetch_pi.dwProcessId);
         DWORD wait_res = WaitForSingleObject(fetch_pi.hProcess, 3000);
         DWORD fetch_exit = 1;

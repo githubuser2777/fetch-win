@@ -469,6 +469,13 @@ static int count_file_lines(const char *path, const char *prefix) {
 }
 
 static void gather_packages(void) {
+#ifdef _WIN32
+  char val_win[128] = "";
+  platform_gather_packages(val_win, sizeof(val_win));
+  if (val_win[0])
+    add_info("Packages", "%s", val_win);
+  return;
+#endif
   char val[128] = "";
   int n;
 
@@ -2870,8 +2877,14 @@ int main(int argc, char **argv) {
     config_box = 1;
 
   if (logo_name) {
-    if (!load_logo_fastfetch(logo_name))
-      load_default_logo();
+    int got = load_logo_fastfetch(logo_name);
+    if (!got) {
+      if (logo_load_builtin(&g_logo, logo_name)) {
+        logo_sync_to_globals(&g_logo);
+      } else {
+        load_default_logo();
+      }
+    }
     strncpy(distro, logo_name, sizeof(distro) - 1);
   } else {
     // Try logo.txt first
@@ -2899,12 +2912,19 @@ int main(int argc, char **argv) {
       }
     }
     if (!got_logo && logo_rows == 0) {
-      load_default_logo();
-      if (distro[0] && strcasecmp(distro, "gentoo") != 0)
-        fprintf(stderr,
-                "fetch: couldn't load %s logo (is fastfetch installed?). "
-                "using built-in gentoo logo.\n",
-                distro);
+      if (distro[0] && logo_load_builtin(&g_logo, distro)) {
+        logo_sync_to_globals(&g_logo);
+        got_logo = 1;
+      } else {
+        load_default_logo();
+#ifndef _WIN32
+        if (distro[0] && strcasecmp(distro, "gentoo") != 0)
+          fprintf(stderr,
+                  "fetch: couldn't load %s logo (is fastfetch installed?). "
+                  "using built-in gentoo logo.\n",
+                  distro);
+#endif
+      }
     }
   }
 

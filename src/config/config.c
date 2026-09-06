@@ -464,8 +464,14 @@ int config_load_file(fetch_config_t *cfg, const char *path) {
   return 1;
 }
 
+__attribute__((weak)) void platform_get_config_path(char *out, size_t outsz);
+
 void config_get_default_path(char *out, size_t outsz) {
   if (!out || outsz == 0) return;
+  if (platform_get_config_path) {
+    platform_get_config_path(out, outsz);
+    if (out[0]) return;
+  }
   const char *home = getenv("HOME");
   if (home && home[0]) {
     snprintf(out, outsz, "%s/.config/fetch/config", home);

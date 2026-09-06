@@ -211,7 +211,7 @@ Phase 4: Windows Terminal Backend (COMPLETED)
 Phase 5: Windows System Information Backend (COMPLETED)
    │
    ▼
-Phase 6: Windows Paths, Logo & Packages
+Phase 6: Windows Paths, Logo & Packages (COMPLETED)
    │
    ▼
 Phase 7: CMake Cross-Platform Build System
@@ -339,13 +339,37 @@ Phase 10: Documentation & Release
 - **Acceptance**: All system information fields output authentic Windows metrics with zero fabrication; dynamic counters refresh in-place during animation without render hitching or static collector re-execution.
 
 #### Phase 6: Windows Paths, Logo & Package Managers
-- **Status**: Pending
-- **Files**: `src/config/config.c`, `src/logo/logo.c`, `src/platform/platform_win.c`
-- **Scope**:
-  - Resolve `%APPDATA%\fetch\config` and `%APPDATA%\fetch\logo.txt` with fallbacks.
-  - Add built-in Windows ASCII logo art and color schemes.
-  - Implement Scoop and Chocolatey directory detection.
-- **Acceptance**: `fetch.exe` without arguments displays the Windows ASCII logo and native stats.
+- **Status**: **COMPLETED**
+- **Files**: `src/platform/platform.h`, `src/platform/platform_win.c`, `src/logo/logo.h`, `src/logo/logo.c`, `src/config/config.c`, `fetch.c`, `tests/test_phase6.c`, `tests/smoke_win.c`, `Makefile`
+- **Deliverables**:
+  - `src/platform/platform_win.c`:
+    - Implemented UTF-16 Win32 path resolution prioritizing `%APPDATA%\fetch\config` and `%APPDATA%\fetch\logo.txt` with regular file validation and fallback to `%USERPROFILE%\.config\fetch\...` / `%HOME%\.config\fetch\...`.
+    - Implemented robust `platform_run_command()` with UTF-16 conversion, Job Object process-tree management, non-blocking pipe draining (64 KiB buffer), active polling loop, and 2.5-second timeout.
+    - Implemented package managers detection: Scoop app directory scanning, Chocolatey package directory scanning, conservative Winget tabular output parsing (`winget list --source winget`), and multi-manager formatted count string (`winget: X, Scoop: Y, Chocolatey: Z`).
+    - Integrated package collector with `g_sys_cache` to guarantee zero per-frame process spawning during animation.
+  - `src/logo/logo.h` & `src/logo/logo.c`:
+    - Added clean built-in 4-quadrant Windows ASCII logo (`windows_ascii`).
+    - Added built-in logo selector supporting `gentoo` and Windows aliases (`windows`, `win`, `win11`, `win10`).
+    - Added Windows distro ANSI color scheme (bold cyan outer `\033[1;36m`, bold white inner `\033[1;37m`).
+    - Integrated optional Fastfetch logo detection and safe execution via `platform_run_command`.
+    - Added cached Fastfetch availability check and cache invalidation.
+  - `src/config/config.c` & `fetch.c`:
+    - Connected platform path helpers for config and logo lookup.
+    - Wired `platform_gather_packages()` into the info gathering pipeline.
+  - `tests/test_phase6.c`: 49 automated unit assertions across 7 sections covering path resolution, spaces/Unicode, built-in logos/aliases, custom logos, subprocess safety/timeouts, package parsing, and zero per-frame caching.
+  - `Makefile`: Added `test_phase6` target, dependencies, and updated full test runner.
+- **Results**:
+  - Phase 0 baseline regression tests: 98 / 98 passed (100% success).
+  - Phase 1 isolated unit tests: 67 / 67 passed (100% success).
+  - Phase 2 isolated unit tests: 130 / 130 passed (100% success).
+  - Phase 3 platform unit tests: 60 / 60 passed (100% success).
+  - Phase 4 native Windows unit tests: 98 / 98 passed (100% success).
+  - Phase 5 system information unit tests: 278 / 278 passed (100% success).
+  - Phase 6 Windows paths, logo & packages unit tests: 49 / 49 passed (100% success).
+  - Total unit tests: 780 / 780 passed (100% success across all phases).
+  - Native Windows smoke tests: 40 / 40 passed (100% success).
+  - Clean native execution of `fetch.exe` displaying authentic Windows metrics, built-in Windows logo, and package counts.
+- **Acceptance**: `fetch.exe` without arguments displays the Windows ASCII logo and native stats, configuration and custom logos resolve correctly from `%APPDATA%`, and package managers are discovered with zero animation hitching.
 
 #### Phase 7: Cross-Platform CMake Build System
 - **Status**: Pending

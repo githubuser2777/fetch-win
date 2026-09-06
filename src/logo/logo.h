@@ -20,6 +20,7 @@ typedef struct {
 // Modular Logo API
 void logo_init(fetch_logo_t *logo);
 void logo_load_default(fetch_logo_t *logo);
+int logo_load_builtin(fetch_logo_t *logo, const char *name);
 int logo_load_file(fetch_logo_t *logo, const char *path);
 int logo_load_fastfetch(fetch_logo_t *logo, const char *name);
 void logo_process(fetch_logo_t *logo);
@@ -27,6 +28,7 @@ void logo_process_row(fetch_logo_t *logo, int row);
 void logo_set_distro_colors(const char *distro, const char **color_outer, const char **color_inner);
 int logo_detect_distro(char *out, size_t maxlen);
 void logo_get_default_path(char *out, size_t outsz);
+void logo_invalidate_cache(void);
 
 // Global logo instance and sync functions
 extern fetch_logo_t g_logo;

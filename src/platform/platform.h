@@ -150,6 +150,10 @@ int  platform_is_ctrl_handler_registered_for_test(void);
 int  platform_get_query_count_for_test(const char *name);
 int  platform_is_field_cached_for_test(const char *name);
 void platform_reset_query_counts_for_test(void);
+int  platform_run_command(const char *cmd, char *out, size_t outsz, unsigned int timeout_ms);
+int  platform_count_dir_packages(const char *path);
+int  platform_parse_winget_output(const char *output);
+void platform_format_packages_string(char *out, size_t outsz, int winget, int scoop, int choco);
 #endif
 
 #ifdef __cplusplus
