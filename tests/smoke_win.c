@@ -207,7 +207,7 @@ int main(int argc, char **argv) {
     char fetch_cmd[] = ".\\fetch.exe";
 
     if (CreateProcessA(NULL, fetch_cmd, NULL, NULL, FALSE, CREATE_NEW_PROCESS_GROUP, NULL, NULL, &fetch_si, &fetch_pi)) {
-        Sleep(200); /* Allow fetch.exe to render initial frame */
+        Sleep(500); /* Allow fetch.exe to complete gather & register ctrl handler */
         GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, fetch_pi.dwProcessId);
         DWORD wait_res = WaitForSingleObject(fetch_pi.hProcess, 3000);
         DWORD fetch_exit = 1;
@@ -311,6 +311,51 @@ int main(int argc, char **argv) {
         SMOKE_CHECK(1, "Mouse events verified via test harness");
     }
     platform_terminal_cleanup();
+
+    /* 10. Dynamic Refresh In-Animation Smoke Test: fetch.exe --frames 25 */
+    printf("\n10. Dynamic Refresh In-Animation Smoke Test: fetch.exe --frames 25\n");
+    fp = popen(".\\fetch.exe --frames 25", "r");
+    int saw_uptime = 0, saw_memory = 0, saw_swap = 0;
+    output_bytes = 0;
+    if (fp) {
+        while (fgets(buf, sizeof(buf), fp)) {
+            output_bytes += strlen(buf);
+            if (strstr(buf, "Uptime")) saw_uptime = 1;
+            if (strstr(buf, "Memory")) saw_memory = 1;
+            if (strstr(buf, "Swap")) saw_swap = 1;
+        }
+        int code = pclose(fp);
+        SMOKE_CHECK(code == 0, "--frames 25 crosses 1-second refresh mark and exits cleanly with status 0");
+        SMOKE_CHECK(output_bytes > 2000, "--frames 25 rendered full animation sequence");
+        SMOKE_CHECK(saw_uptime == 1, "Dynamic Uptime metric rendered in animation");
+        SMOKE_CHECK(saw_memory == 1, "Dynamic Memory metric rendered in animation");
+        SMOKE_CHECK(saw_swap == 1, "Dynamic Swap metric rendered in animation");
+    } else {
+        SMOKE_CHECK(0, "Failed to run fetch.exe --frames 25");
+    }
+
+    /* 11. System Information Authenticity Smoke Test: fetch.exe --frames 1 */
+    printf("\n11. System Information Authenticity Smoke Test: fetch.exe --frames 1\n");
+    fp = popen(".\\fetch.exe --frames 1", "r");
+    int saw_os_win = 0, saw_kernel_nt = 0, saw_cpu = 0, saw_disk = 0, saw_locale = 0;
+    if (fp) {
+        while (fgets(buf, sizeof(buf), fp)) {
+            if (strstr(buf, "OS") && strstr(buf, "Windows")) saw_os_win = 1;
+            if (strstr(buf, "Kernel") && strstr(buf, "Windows NT")) saw_kernel_nt = 1;
+            if (strstr(buf, "CPU")) saw_cpu = 1;
+            if (strstr(buf, "Disk")) saw_disk = 1;
+            if (strstr(buf, "Locale")) saw_locale = 1;
+        }
+        int code = pclose(fp);
+        SMOKE_CHECK(code == 0, "--frames 1 exits with status 0");
+        SMOKE_CHECK(saw_os_win == 1, "Authentic Windows OS metric confirmed");
+        SMOKE_CHECK(saw_kernel_nt == 1, "Authentic Windows NT kernel metric confirmed");
+        SMOKE_CHECK(saw_cpu == 1, "Authentic CPU metric confirmed");
+        SMOKE_CHECK(saw_disk == 1, "Authentic Disk metric confirmed");
+        SMOKE_CHECK(saw_locale == 1, "Authentic Locale metric confirmed");
+    } else {
+        SMOKE_CHECK(0, "Failed to run fetch.exe --frames 1");
+    }
 
     printf("\n====================================================\n");
     printf("  SMOKE TEST SUMMARY: %d / %d passed", smoke_passed, smoke_run);

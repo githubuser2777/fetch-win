@@ -888,6 +888,23 @@ typedef struct {
 
 static win_system_cache_t g_sys_cache = {0};
 
+#ifdef FETCH_TESTING
+static int s_test_title_query_count = 0;
+static int s_test_os_query_count = 0;
+static int s_test_host_query_count = 0;
+static int s_test_kernel_query_count = 0;
+static int s_test_shell_proc_count = 0;
+static int s_test_display_enum_count = 0;
+static int s_test_wm_query_count = 0;
+static int s_test_theme_query_count = 0;
+static int s_test_font_query_count = 0;
+static int s_test_cursor_query_count = 0;
+static int s_test_locale_query_count = 0;
+static int s_test_cpu_query_count = 0;
+static int s_test_gpu_enum_count = 0;
+static int s_test_ip_enum_count = 0;
+#endif
+
 void platform_invalidate_info_cache(void) {
   memset(&g_sys_cache, 0, sizeof(g_sys_cache));
 }
@@ -899,6 +916,9 @@ void platform_gather_title(char *out_user, size_t usersz, char *out_host, size_t
   if (out_host && hostsz > 0) out_host[0] = '\0';
 
   if (!g_sys_cache.title_valid) {
+#ifdef FETCH_TESTING
+    s_test_title_query_count++;
+#endif
     WCHAR wuser[128] = {0};
     DWORD wusersz = 128;
     if (GetUserNameW(wuser, &wusersz) && wuser[0] != L'\0') {
@@ -949,6 +969,9 @@ void platform_gather_os(char *out, size_t outsz) {
     out[outsz - 1] = '\0';
     return;
   }
+#ifdef FETCH_TESTING
+  s_test_os_query_count++;
+#endif
 
   WCHAR wprod[128] = {0};
   WCHAR wdisp[64] = {0};
@@ -1030,6 +1053,9 @@ void platform_gather_host(char *out, size_t outsz) {
     out[outsz - 1] = '\0';
     return;
   }
+#ifdef FETCH_TESTING
+  s_test_host_query_count++;
+#endif
 
   WCHAR wmfg[128] = {0};
   WCHAR wprod[128] = {0};
@@ -1093,6 +1119,9 @@ void platform_gather_kernel(char *out, size_t outsz) {
     out[outsz - 1] = '\0';
     return;
   }
+#ifdef FETCH_TESTING
+  s_test_kernel_query_count++;
+#endif
 
   OSVERSIONINFOW ovi;
   if (win32_get_version(&ovi)) {
@@ -1141,6 +1170,9 @@ void platform_gather_packages(char *out, size_t outsz) {
 }
 
 static void detect_shell_and_terminal(char *shell_out, size_t shell_sz, char *term_out, size_t term_sz) {
+#ifdef FETCH_TESTING
+  s_test_shell_proc_count++;
+#endif
   if (shell_out && shell_sz > 0) shell_out[0] = '\0';
   if (term_out && term_sz > 0) term_out[0] = '\0';
 
@@ -1281,6 +1313,9 @@ void platform_gather_display(platform_emit_info_cb emit_cb) {
     }
     return;
   }
+#ifdef FETCH_TESTING
+  s_test_display_enum_count++;
+#endif
 
   g_sys_cache.display_count = 0;
 
@@ -1335,6 +1370,9 @@ void platform_gather_wm(char *out, size_t outsz) {
     out[outsz - 1] = '\0';
     return;
   }
+#ifdef FETCH_TESTING
+  s_test_wm_query_count++;
+#endif
 
   const char *wm = "DWM";
 
@@ -1376,6 +1414,9 @@ void platform_gather_theme(char *out, size_t outsz) {
     out[outsz - 1] = '\0';
     return;
   }
+#ifdef FETCH_TESTING
+  s_test_theme_query_count++;
+#endif
 
   DWORD light = 0;
   if (reg_get_dword(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", L"AppsUseLightTheme", &light)) {
@@ -1403,6 +1444,9 @@ void platform_gather_font(char *out, size_t outsz) {
     out[outsz - 1] = '\0';
     return;
   }
+#ifdef FETCH_TESTING
+  s_test_font_query_count++;
+#endif
 
   CONSOLE_FONT_INFOEX cfi = { sizeof(cfi) };
   HANDLE hOut = g_win_console.hOut;
@@ -1438,6 +1482,9 @@ void platform_gather_cursor(char *out, size_t outsz) {
     out[outsz - 1] = '\0';
     return;
   }
+#ifdef FETCH_TESTING
+  s_test_cursor_query_count++;
+#endif
 
   WCHAR scheme[128] = {0};
   if (reg_get_sz(HKEY_CURRENT_USER, L"Control Panel\\Cursors", NULL, scheme, 128) && scheme[0] != L'\0') {
@@ -1466,6 +1513,9 @@ void platform_gather_locale(char *out, size_t outsz) {
     out[outsz - 1] = '\0';
     return;
   }
+#ifdef FETCH_TESTING
+  s_test_locale_query_count++;
+#endif
 
   WCHAR loc[LOCALE_NAME_MAX_LENGTH] = {0};
   if (GetUserDefaultLocaleName(loc, LOCALE_NAME_MAX_LENGTH) && loc[0] != L'\0') {
@@ -1494,6 +1544,9 @@ void platform_gather_cpu(char *out, size_t outsz) {
     out[outsz - 1] = '\0';
     return;
   }
+#ifdef FETCH_TESTING
+  s_test_cpu_query_count++;
+#endif
 
   WCHAR wcpu[128] = {0};
   DWORD mhz = 0;
@@ -1545,6 +1598,9 @@ void platform_gather_gpu(platform_emit_info_cb emit_cb) {
     }
     return;
   }
+#ifdef FETCH_TESTING
+  s_test_gpu_enum_count++;
+#endif
 
   g_sys_cache.gpu_count = 0;
 
@@ -1762,6 +1818,9 @@ void platform_gather_ip(platform_emit_info_cb emit_cb) {
     }
     return;
   }
+#ifdef FETCH_TESTING
+  s_test_ip_enum_count++;
+#endif
 
   g_sys_cache.ip_count = 0;
 
@@ -1878,5 +1937,67 @@ int platform_get_pending_bytes_for_test(void) {
 
 int platform_is_ctrl_handler_registered_for_test(void) {
   return g_win_console.ctrl_handler_registered;
+}
+
+int platform_get_query_count_for_test(const char *name) {
+  if (!name) return 0;
+  if (strcmp(name, "title") == 0) return s_test_title_query_count;
+  if (strcmp(name, "os") == 0) return s_test_os_query_count;
+  if (strcmp(name, "host") == 0) return s_test_host_query_count;
+  if (strcmp(name, "kernel") == 0) return s_test_kernel_query_count;
+  if (strcmp(name, "shell") == 0 || strcmp(name, "terminal") == 0) return s_test_shell_proc_count;
+  if (strcmp(name, "display") == 0) return s_test_display_enum_count;
+  if (strcmp(name, "wm") == 0) return s_test_wm_query_count;
+  if (strcmp(name, "theme") == 0) return s_test_theme_query_count;
+  if (strcmp(name, "font") == 0) return s_test_font_query_count;
+  if (strcmp(name, "cursor") == 0) return s_test_cursor_query_count;
+  if (strcmp(name, "locale") == 0) return s_test_locale_query_count;
+  if (strcmp(name, "cpu") == 0) return s_test_cpu_query_count;
+  if (strcmp(name, "gpu") == 0) return s_test_gpu_enum_count;
+  if (strcmp(name, "ip") == 0) return s_test_ip_enum_count;
+  return 0;
+}
+
+int platform_is_field_cached_for_test(const char *name) {
+  if (!name) return 0;
+  if (strcmp(name, "title") == 0) return g_sys_cache.title_valid;
+  if (strcmp(name, "os") == 0) return g_sys_cache.os_valid;
+  if (strcmp(name, "host") == 0) return g_sys_cache.host_valid;
+  if (strcmp(name, "kernel") == 0) return g_sys_cache.kernel_valid;
+  if (strcmp(name, "shell") == 0) return g_sys_cache.shell_valid;
+  if (strcmp(name, "terminal") == 0) return g_sys_cache.terminal_valid;
+  if (strcmp(name, "display") == 0) return g_sys_cache.display_valid;
+  if (strcmp(name, "wm") == 0) return g_sys_cache.wm_valid;
+  if (strcmp(name, "theme") == 0) return g_sys_cache.theme_valid;
+  if (strcmp(name, "font") == 0) return g_sys_cache.font_valid;
+  if (strcmp(name, "cursor") == 0) return g_sys_cache.cursor_valid;
+  if (strcmp(name, "locale") == 0) return g_sys_cache.locale_valid;
+  if (strcmp(name, "cpu") == 0) return g_sys_cache.cpu_valid;
+  if (strcmp(name, "gpu") == 0) return g_sys_cache.gpu_valid;
+  if (strcmp(name, "ip") == 0) return g_sys_cache.ip_valid;
+  /* Dynamic fields are NEVER cached */
+  if (strcmp(name, "uptime") == 0) return 0;
+  if (strcmp(name, "memory") == 0) return 0;
+  if (strcmp(name, "swap") == 0) return 0;
+  if (strcmp(name, "battery") == 0) return 0;
+  if (strcmp(name, "disk") == 0) return 0;
+  return 0;
+}
+
+void platform_reset_query_counts_for_test(void) {
+  s_test_title_query_count = 0;
+  s_test_os_query_count = 0;
+  s_test_host_query_count = 0;
+  s_test_kernel_query_count = 0;
+  s_test_shell_proc_count = 0;
+  s_test_display_enum_count = 0;
+  s_test_wm_query_count = 0;
+  s_test_theme_query_count = 0;
+  s_test_font_query_count = 0;
+  s_test_cursor_query_count = 0;
+  s_test_locale_query_count = 0;
+  s_test_cpu_query_count = 0;
+  s_test_gpu_enum_count = 0;
+  s_test_ip_enum_count = 0;
 }
 #endif

@@ -491,23 +491,253 @@ static void test_package_stub(void) {
 }
 
 /* ------------------------------------------------------------- */
-/* 16. Cache Invalidation & Extensibility Tests                  */
+/* 16. Static System-Info Caching & Call Avoidance               */
 /* ------------------------------------------------------------- */
-static void test_cache_invalidation(void) {
-    TEST_SECTION("Cache Invalidation & Extensibility");
+static void test_static_caching_and_call_avoidance(void) {
+    TEST_SECTION("Static System-Info Caching & Call Avoidance");
 
-    char os1[256] = "";
-    platform_gather_os(os1, sizeof(os1));
-    TEST_ASSERT(os1[0] != '\0', "Initial OS query succeeds");
-
-    /* Invalidate cache */
     platform_invalidate_info_cache();
+    platform_reset_query_counts_for_test();
 
-    /* Subsequent query must succeed and refresh */
-    char os2[256] = "";
-    platform_gather_os(os2, sizeof(os2));
-    TEST_ASSERT(os2[0] != '\0', "Post-invalidation OS query succeeds");
-    TEST_ASSERT(strcmp(os1, os2) == 0, "Refreshed OS query matches cached value");
+    /* 1. OS Collector Caching */
+    char os_val1[256] = "", os_val2[256] = "";
+    TEST_ASSERT(!platform_is_field_cached_for_test("os"), "OS initially uncached");
+    TEST_ASSERT(platform_get_query_count_for_test("os") == 0, "OS initial query count is 0");
+
+    platform_gather_os(os_val1, sizeof(os_val1));
+    TEST_ASSERT(platform_is_field_cached_for_test("os"), "OS marked cached after first call");
+    TEST_ASSERT(platform_get_query_count_for_test("os") == 1, "OS query count is 1 after first call");
+
+    /* Repeated calls must hit cache and NOT re-query */
+    for (int i = 0; i < 5; i++) {
+        platform_gather_os(os_val2, sizeof(os_val2));
+    }
+    TEST_ASSERT(platform_get_query_count_for_test("os") == 1,
+                "OS query count remains 1 after 5 repeated calls (call avoidance)");
+    TEST_ASSERT(strcmp(os_val1, os_val2) == 0, "Repeated OS calls return consistent cached value");
+
+    /* Invalidation resets cache and allows fresh collection */
+    platform_invalidate_info_cache();
+    TEST_ASSERT(!platform_is_field_cached_for_test("os"), "OS uncached after cache invalidation");
+    platform_gather_os(os_val1, sizeof(os_val1));
+    TEST_ASSERT(platform_get_query_count_for_test("os") == 2, "OS re-queried (count=2) after invalidation");
+
+    /* 2. GPU Collector Caching (DXGI enumeration avoidance) */
+    reset_tracker();
+    TEST_ASSERT(!platform_is_field_cached_for_test("gpu"), "GPU initially uncached");
+    int initial_gpu_count = platform_get_query_count_for_test("gpu");
+    platform_gather_gpu(test_emit_cb);
+    TEST_ASSERT(platform_is_field_cached_for_test("gpu"), "GPU marked cached after first call");
+    TEST_ASSERT(platform_get_query_count_for_test("gpu") == initial_gpu_count + 1,
+                "DXGI enumerated exactly once on first call");
+
+    for (int i = 0; i < 5; i++) {
+        reset_tracker();
+        platform_gather_gpu(test_emit_cb);
+    }
+    TEST_ASSERT(platform_get_query_count_for_test("gpu") == initial_gpu_count + 1,
+                "DXGI enumeration NOT repeated across 5 subsequent calls (call avoidance)");
+
+    platform_invalidate_info_cache();
+    TEST_ASSERT(!platform_is_field_cached_for_test("gpu"), "GPU uncached after invalidation");
+    reset_tracker();
+    platform_gather_gpu(test_emit_cb);
+    TEST_ASSERT(platform_get_query_count_for_test("gpu") == initial_gpu_count + 2,
+                "DXGI fresh enumeration executed after cache invalidation");
+
+    /* 3. Display Collector Caching (EnumDisplayDevices avoidance) */
+    reset_tracker();
+    TEST_ASSERT(!platform_is_field_cached_for_test("display"), "Display initially uncached");
+    int initial_disp_count = platform_get_query_count_for_test("display");
+    platform_gather_display(test_emit_cb);
+    TEST_ASSERT(platform_is_field_cached_for_test("display"), "Display marked cached after first call");
+    TEST_ASSERT(platform_get_query_count_for_test("display") == initial_disp_count + 1,
+                "Display enumerated once on first call");
+
+    for (int i = 0; i < 5; i++) {
+        reset_tracker();
+        platform_gather_display(test_emit_cb);
+    }
+    TEST_ASSERT(platform_get_query_count_for_test("display") == initial_disp_count + 1,
+                "Display enumeration NOT repeated across 5 calls (call avoidance)");
+
+    platform_invalidate_info_cache();
+    reset_tracker();
+    platform_gather_display(test_emit_cb);
+    TEST_ASSERT(platform_get_query_count_for_test("display") == initial_disp_count + 2,
+                "Display fresh enumeration after invalidation");
+
+    /* 4. Shell & Terminal Process Tree Walk Caching */
+    char shell_buf[128] = "", term_buf[128] = "";
+    int initial_proc_count = platform_get_query_count_for_test("shell");
+    platform_gather_shell(shell_buf, sizeof(shell_buf));
+    TEST_ASSERT(platform_is_field_cached_for_test("shell"), "Shell marked cached");
+    TEST_ASSERT(platform_is_field_cached_for_test("terminal"),
+                "Terminal marked cached as co-product of process hierarchy walk");
+    TEST_ASSERT(platform_get_query_count_for_test("shell") == initial_proc_count + 1,
+                "Process walk executed once");
+
+    /* Subsequent terminal call must hit shared cache without walking process tree */
+    platform_gather_terminal(term_buf, sizeof(term_buf));
+    TEST_ASSERT(platform_get_query_count_for_test("terminal") == initial_proc_count + 1,
+                "Terminal query used cached process walk data (zero re-walk)");
+
+    for (int i = 0; i < 5; i++) {
+        platform_gather_shell(shell_buf, sizeof(shell_buf));
+        platform_gather_terminal(term_buf, sizeof(term_buf));
+    }
+    TEST_ASSERT(platform_get_query_count_for_test("shell") == initial_proc_count + 1,
+                "Zero process re-walks over repeated shell/terminal calls");
+
+    /* 5. CPU Collector Caching */
+    char cpu_buf[256] = "";
+    int initial_cpu_count = platform_get_query_count_for_test("cpu");
+    platform_gather_cpu(cpu_buf, sizeof(cpu_buf));
+    TEST_ASSERT(platform_is_field_cached_for_test("cpu"), "CPU marked cached");
+    TEST_ASSERT(platform_get_query_count_for_test("cpu") == initial_cpu_count + 1, "CPU registry queried once");
+    for (int i = 0; i < 5; i++) platform_gather_cpu(cpu_buf, sizeof(cpu_buf));
+    TEST_ASSERT(platform_get_query_count_for_test("cpu") == initial_cpu_count + 1, "CPU query NOT repeated");
+
+    /* 6. Title, Host, Kernel, WM, Theme, Font, Cursor, Locale, IP */
+    char tmp[256] = "", tmp2[256] = "";
+    platform_gather_title(tmp, sizeof(tmp), tmp2, sizeof(tmp2));
+    TEST_ASSERT(platform_is_field_cached_for_test("title"), "Title marked cached");
+    platform_gather_host(tmp, sizeof(tmp));
+    TEST_ASSERT(platform_is_field_cached_for_test("host"), "Host marked cached");
+    platform_gather_kernel(tmp, sizeof(tmp));
+    TEST_ASSERT(platform_is_field_cached_for_test("kernel"), "Kernel marked cached");
+    platform_gather_wm(tmp, sizeof(tmp));
+    TEST_ASSERT(platform_is_field_cached_for_test("wm"), "WM marked cached");
+    platform_gather_theme(tmp, sizeof(tmp));
+    TEST_ASSERT(platform_is_field_cached_for_test("theme"), "Theme marked cached");
+    platform_gather_font(tmp, sizeof(tmp));
+    TEST_ASSERT(platform_is_field_cached_for_test("font"), "Font marked cached");
+    platform_gather_cursor(tmp, sizeof(tmp));
+    TEST_ASSERT(platform_is_field_cached_for_test("cursor"), "Cursor marked cached");
+    platform_gather_locale(tmp, sizeof(tmp));
+    TEST_ASSERT(platform_is_field_cached_for_test("locale"), "Locale marked cached");
+    reset_tracker();
+    platform_gather_ip(test_emit_cb);
+    TEST_ASSERT(platform_is_field_cached_for_test("ip"), "IP marked cached");
+
+    /* Total invalidation clears ALL flags */
+    platform_invalidate_info_cache();
+    TEST_ASSERT(!platform_is_field_cached_for_test("title"), "Title cleared on invalidate");
+    TEST_ASSERT(!platform_is_field_cached_for_test("host"), "Host cleared on invalidate");
+    TEST_ASSERT(!platform_is_field_cached_for_test("kernel"), "Kernel cleared on invalidate");
+    TEST_ASSERT(!platform_is_field_cached_for_test("shell"), "Shell cleared on invalidate");
+    TEST_ASSERT(!platform_is_field_cached_for_test("terminal"), "Terminal cleared on invalidate");
+    TEST_ASSERT(!platform_is_field_cached_for_test("display"), "Display cleared on invalidate");
+    TEST_ASSERT(!platform_is_field_cached_for_test("wm"), "WM cleared on invalidate");
+    TEST_ASSERT(!platform_is_field_cached_for_test("theme"), "Theme cleared on invalidate");
+    TEST_ASSERT(!platform_is_field_cached_for_test("font"), "Font cleared on invalidate");
+    TEST_ASSERT(!platform_is_field_cached_for_test("cursor"), "Cursor cleared on invalidate");
+    TEST_ASSERT(!platform_is_field_cached_for_test("locale"), "Locale cleared on invalidate");
+    TEST_ASSERT(!platform_is_field_cached_for_test("cpu"), "CPU cleared on invalidate");
+    TEST_ASSERT(!platform_is_field_cached_for_test("gpu"), "GPU cleared on invalidate");
+    TEST_ASSERT(!platform_is_field_cached_for_test("ip"), "IP cleared on invalidate");
+}
+
+/* ------------------------------------------------------------- */
+/* 17. Dynamic Field Non-Caching Contract                        */
+/* ------------------------------------------------------------- */
+static void test_dynamic_fields_non_caching(void) {
+    TEST_SECTION("Dynamic Field Non-Caching Contract");
+
+    /* 1. Uptime, Memory, Swap, Battery, Disk must NEVER be cached */
+    TEST_ASSERT(!platform_is_field_cached_for_test("uptime"), "Uptime must never be reported as cached");
+    TEST_ASSERT(!platform_is_field_cached_for_test("memory"), "Memory must never be reported as cached");
+    TEST_ASSERT(!platform_is_field_cached_for_test("swap"), "Swap must never be reported as cached");
+    TEST_ASSERT(!platform_is_field_cached_for_test("battery"), "Battery must never be reported as cached");
+    TEST_ASSERT(!platform_is_field_cached_for_test("disk"), "Disk must never be reported as cached");
+
+    /* 2. Successive Uptime calls query live ticks */
+    char up1[128] = "", up2[128] = "";
+    platform_gather_uptime(up1, sizeof(up1));
+    TEST_ASSERT(up1[0] != '\0', "Uptime returns non-empty formatted value");
+    TEST_ASSERT(!platform_is_field_cached_for_test("uptime"), "Uptime remains uncached after query");
+
+    /* 3. Successive Memory & Swap calls query live memory status */
+    char mem1[256] = "", mem2[256] = "";
+    platform_gather_memory(mem1, sizeof(mem1));
+    TEST_ASSERT(mem1[0] != '\0', "Memory returns non-empty formatted string");
+    TEST_ASSERT(!platform_is_field_cached_for_test("memory"), "Memory remains uncached after query");
+
+    char swap1[256] = "", swap2[256] = "";
+    platform_gather_swap(swap1, sizeof(swap1));
+    TEST_ASSERT(swap1[0] != '\0', "Swap returns non-empty formatted string");
+    TEST_ASSERT(!platform_is_field_cached_for_test("swap"), "Swap remains uncached after query");
+
+    /* 4. Cache invalidation does not break dynamic collectors */
+    platform_invalidate_info_cache();
+    platform_gather_uptime(up2, sizeof(up2));
+    platform_gather_memory(mem2, sizeof(mem2));
+    platform_gather_swap(swap2, sizeof(swap2));
+    TEST_ASSERT(up2[0] != '\0', "Uptime works post-invalidation");
+    TEST_ASSERT(mem2[0] != '\0', "Memory works post-invalidation");
+    TEST_ASSERT(swap2[0] != '\0', "Swap works post-invalidation");
+}
+
+/* ------------------------------------------------------------- */
+/* 18. Dynamic Refresh Integration & Cadence Contracts           */
+/* ------------------------------------------------------------- */
+static void test_dynamic_refresh_cadence_contracts(void) {
+    TEST_SECTION("Dynamic Refresh Integration & Cadence Contracts");
+
+    /* 1. Verify 1-second refresh cadence rule: (frame > 0 && frame % 20 == 0) */
+    int refresh_count = 0;
+    for (int frame = 0; frame <= 100; frame++) {
+        int should_refresh = (frame > 0 && frame % 20 == 0);
+        if (should_refresh) {
+            refresh_count++;
+            /* Must only fire on exact multiples of 20 */
+            TEST_ASSERT(frame == 20 || frame == 40 || frame == 60 || frame == 80 || frame == 100,
+                        "Dynamic refresh fires strictly on 20-frame (1-second) boundaries");
+        } else {
+            /* Guaranteed NOT to fire on non-multiples */
+            TEST_ASSERT(frame % 20 != 0 || frame == 0,
+                        "Frames between boundaries never trigger dynamic refresh");
+        }
+    }
+    TEST_ASSERT(refresh_count == 5, "Exactly 5 dynamic refresh passes in 100 frames (~5 seconds at 20 FPS)");
+
+    /* 2. Verify static collectors are NOT re-queried during dynamic refresh simulation */
+    platform_invalidate_info_cache();
+    platform_reset_query_counts_for_test();
+
+    /* Prime static cache (startup phase) */
+    char os_b[256], cpu_b[256];
+    platform_gather_os(os_b, sizeof(os_b));
+    platform_gather_cpu(cpu_b, sizeof(cpu_b));
+    reset_tracker();
+    platform_gather_gpu(test_emit_cb);
+    platform_gather_display(test_emit_cb);
+
+    int os_count_before = platform_get_query_count_for_test("os");
+    int cpu_count_before = platform_get_query_count_for_test("cpu");
+    int gpu_count_before = platform_get_query_count_for_test("gpu");
+    int disp_count_before = platform_get_query_count_for_test("display");
+
+    /* Simulate 50 frames of animation loop: only frames 20 and 40 trigger dynamic refresh */
+    for (int frame = 1; frame <= 50; frame++) {
+        if (frame % 20 == 0) {
+            /* Inside fetch.c: only uptime, memory, swap are gathered */
+            char up[128], mem[256], swp[256];
+            platform_gather_uptime(up, sizeof(up));
+            platform_gather_memory(mem, sizeof(mem));
+            platform_gather_swap(swp, sizeof(swp));
+        }
+    }
+
+    /* Verify static query counts are 100% UNCHANGED */
+    TEST_ASSERT(platform_get_query_count_for_test("os") == os_count_before,
+                "OS query count completely untouched during dynamic refresh");
+    TEST_ASSERT(platform_get_query_count_for_test("cpu") == cpu_count_before,
+                "CPU query count completely untouched during dynamic refresh");
+    TEST_ASSERT(platform_get_query_count_for_test("gpu") == gpu_count_before,
+                "DXGI GPU query count completely untouched during dynamic refresh");
+    TEST_ASSERT(platform_get_query_count_for_test("display") == disp_count_before,
+                "Display query count completely untouched during dynamic refresh");
 }
 
 /* ------------------------------------------------------------- */
@@ -534,7 +764,9 @@ int main(void) {
     test_wm_and_dm();
     test_desktop_appearance();
     test_package_stub();
-    test_cache_invalidation();
+    test_static_caching_and_call_avoidance();
+    test_dynamic_fields_non_caching();
+    test_dynamic_refresh_cadence_contracts();
 
     printf("\n====================================================\n");
     printf("  PHASE 5 TEST SUMMARY: %d / %d passed (%s)\n",

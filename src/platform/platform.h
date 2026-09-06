@@ -147,6 +147,9 @@ void platform_reset_input_state_for_test(void);
 void platform_set_pending_bytes_for_test(int count);
 int  platform_get_pending_bytes_for_test(void);
 int  platform_is_ctrl_handler_registered_for_test(void);
+int  platform_get_query_count_for_test(const char *name);
+int  platform_is_field_cached_for_test(const char *name);
+void platform_reset_query_counts_for_test(void);
 #endif
 
 #ifdef __cplusplus

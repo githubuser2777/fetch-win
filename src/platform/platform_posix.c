@@ -463,4 +463,16 @@ int platform_get_pending_bytes_for_test(void) {
 int platform_is_ctrl_handler_registered_for_test(void) {
   return 0;
 }
+
+int platform_get_query_count_for_test(const char *name) {
+  (void)name;
+  return 0;
+}
+
+int platform_is_field_cached_for_test(const char *name) {
+  (void)name;
+  return 0;
+}
+
+void platform_reset_query_counts_for_test(void) {}
 #endif
