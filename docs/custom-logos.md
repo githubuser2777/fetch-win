@@ -2,7 +2,7 @@
 
 ## Using a custom logo
 
-Create `~/.config/fetch/logo.txt` with your ASCII/Unicode art. fetch will use it instead of detecting your distro.
+Create `%APPDATA%\fetch\logo.txt` on Windows, or `~/.config/fetch/logo.txt` on Linux/macOS, with your ASCII/Unicode art. fetch will use it instead of detecting your distro. On Windows, `%USERPROFILE%\.config\fetch\logo.txt` is also supported as a fallback.
 
 ## Distro color scheme
 
@@ -39,6 +39,13 @@ Without this line, the logo uses the default two-tone colors (`logo_outer` and `
 - Varying density across the logo creates a more interesting 3D shape
 - Very uniform logos (all the same character weight) will look flat. fetch auto-scales the depth to compensate but a mix of weights looks better
 - The logo can be any size but keep in mind it needs to fit your terminal
+
+## Built-in logos
+
+`fetch` includes built-in ASCII art that works without external dependencies:
+
+- On Windows, a native 4-quadrant Windows logo is built-in by default and can be selected via `-l windows` (aliases: `win`, `win11`, `win10`).
+- On POSIX, the Gentoo fallback logo is built-in and can be selected via `-l gentoo`.
 
 ## Using fastfetch logos
 

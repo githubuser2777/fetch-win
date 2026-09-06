@@ -1,6 +1,6 @@
 # Configuration
 
-fetch is configured through `~/.config/fetch/config`. If the file doesn't exist, all fields are shown in the default order.
+fetch is configured through `%APPDATA%\fetch\config` on Windows, or `~/.config/fetch/config` on Linux/macOS. If the file doesn't exist, all fields are shown in the default order.
 
 ## Fields
 
@@ -116,11 +116,12 @@ Override the render height in rows. Default is auto (matches the number of info 
 
 ## Extra disks
 
-Show additional mount points beyond the root filesystem:
+Show additional mount points or drive letters beyond the primary system drive / root filesystem:
 
 ```
 disk=/home
 disk=/data
+disk=D:\
 ```
 
 Up to 8 extra mount points. Each one adds a line to the info output.
@@ -128,6 +129,7 @@ Up to 8 extra mount points. Each one adds a line to the info output.
 ## Notes
 
 - Lines starting with `#` are comments
+- On Windows, `fetch` checks `%APPDATA%\fetch\config` first, then falls back to `%USERPROFILE%\.config\fetch\config` or `~/.config/fetch/config`
 - You don't need to remove the hint text in parentheses after values (e.g. `label_color=white (red, green, ...)`). The parser strips those automatically, except for `shading=`, `separator=`, and `disk=` which accept freeform strings
 - CLI flags override config file settings
 - If no config file exists, everything uses defaults

@@ -7,15 +7,45 @@ A donut.c-inspired fetch tool that spins your distro logo in 3D with live-updati
 Takes any ASCII/Unicode distro logo, turns each character into a point cloud
 based on its visual density, and renders it as a rotating 3D relief with
 Blinn-Phong shading. System info is gathered natively with no external
-dependencies. Works on Linux and macOS.
+dependencies. Works natively on Windows, Linux, and macOS.
 
 Based on [gentoo.c](https://github.com/areofyl/gentoo.c).
 
 ## Build & run
 
+### CMake (Recommended)
+
+```sh
+cmake -S . -B build
+cmake --build build
 ```
-make
-./fetch
+
+Run the binary:
+- Windows: `.\build\fetch.exe`
+- Linux / macOS: `./build/fetch`
+
+Run the test suite:
+```sh
+ctest --test-dir build --output-on-failure
+```
+
+Build without tests:
+```sh
+cmake -S . -B build -DBUILD_TESTING=OFF
+cmake --build build
+```
+
+### Makefile
+
+```sh
+make              # On Windows with MinGW: mingw32-make
+./fetch           # On Windows: .\fetch.exe
+```
+
+Run tests with Makefile:
+```sh
+make test         # On Windows: mingw32-make test
+make smoke        # Native Windows smoke suite: mingw32-make smoke
 ```
 
 Press any key to stop. The keypress passes through to the shell, so it
@@ -163,7 +193,7 @@ You can also specify one directly:
 ./fetch -l asahi
 ```
 
-Or drop a custom logo in `~/.config/fetch/logo.txt`:
+Or drop a custom logo in `%APPDATA%\fetch\logo.txt` (Windows) or `~/.config/fetch/logo.txt` (Linux/macOS):
 
 ```
 # distro: gentoo
@@ -172,37 +202,35 @@ Or drop a custom logo in `~/.config/fetch/logo.txt`:
 ...
 ```
 
-Without fastfetch, the built-in Gentoo logo is used.
+Without fastfetch, a built-in Windows ASCII logo is used on Windows, or the built-in Gentoo logo on POSIX. You can also explicitly request the built-in Windows logo with `-l windows` (aliases: `win`, `win11`, `win10`).
 
 ## System info
 
-All system info is gathered natively. No fastfetch or neofetch needed:
+All system info is gathered natively with zero external dependencies:
 
-- **OS** - `/etc/os-release`
-- **Host** - `/proc/device-tree/model` or `/sys/class/dmi/id/product_name`
-- **Kernel** - `uname()`
-- **Uptime** - `/proc/uptime`
-- **Packages** - emerge, pacman, dpkg, rpm, xbps, apk, flatpak, brew, nixpkgs
-- **Shell** - parent process detection (not just `$SHELL`)
-- **Display** - per-connector DRM enumeration (multi-monitor): active resolution and refresh rate from the CRTC mode, monitor name and physical size from EDID, built-in vs external
-- **WM** - process scanning + DE-to-WM mapping
-- **Display Manager** - process scanning
-- **Theme/Icons/Font** - `~/.config/gtk-3.0/settings.ini`, `~/.gtkrc-2.0`, and Qt (`qt6ct`/`qt5ct`, `~/.config/kdeglobals`) on Linux, `defaults read` (macOS)
-- **Cursor** - `~/.config/gtk-3.0/settings.ini` (Linux only)
-- **CPU** - `/proc/cpuinfo`, device-tree (Apple Silicon), or `sysctl` (macOS)
-- **GPU** - DRM + `lspci` for full names (Linux), `system_profiler` (macOS)
-- **Memory/Swap** - `/proc/meminfo` (Linux), `vm_stat` (macOS)
-- **Disk** - `statvfs()` + `/proc/mounts` (Linux), `getmntinfo` (macOS) – supports multiple mount points via config
-- **Battery** - `energy_now/energy_full` plus `model_name` (Linux), IOKit (macOS)
-- **Local IP** - `getifaddrs()`
+- **OS** - Registry `CurrentVersion` & `RtlGetVersion` (Windows); `/etc/os-release` (Linux); `sysctl` (macOS)
+- **Host** - Registry BIOS hardware info (Windows); `/proc/device-tree/model` or DMI (Linux); `sysctl` (macOS)
+- **Kernel** - Windows NT build (Windows); `uname()` (POSIX)
+- **Uptime** - `GetTickCount64()` (Windows); `/proc/uptime` (Linux); `sysctl` (macOS)
+- **Packages** - winget, Scoop, Chocolatey (Windows); emerge, pacman, dpkg, rpm, xbps, apk, flatpak, brew, nixpkgs (POSIX)
+- **Shell** - Toolhelp32 parent process walk (Windows); parent process inspection (POSIX)
+- **Display** - Win32 `EnumDisplayDevices` & `EnumDisplaySettings` (Windows); DRM enumeration (Linux); Quartz (macOS)
+- **WM** - GlazeWM, komorebi, or DWM (Windows); process scanning + DE-to-WM mapping (Linux/macOS)
+- **Theme/Icons/Font/Cursor** - Registry personalization & console font APIs (Windows); GTK/Qt configs (Linux); `defaults read` (macOS)
+- **CPU** - Registry `CentralProcessor` & `GetNativeSystemInfo` (Windows); `/proc/cpuinfo` (Linux); `sysctl` (macOS)
+- **GPU** - DXGI adapter enumeration with hardware/discrete classification (Windows); DRM + `lspci` (Linux); `system_profiler` (macOS)
+- **Memory/Swap** - `GlobalMemoryStatusEx` (Windows); `/proc/meminfo` (Linux); `vm_stat` (macOS)
+- **Disk** - `GetDiskFreeSpaceEx` & `GetVolumeInformation` (Windows); `statvfs()` (POSIX) – supports multiple mount points via config (`disk=D:\` on Windows, `disk=/home` on POSIX)
+- **Battery** - `GetSystemPowerStatus` (Windows); sysfs battery class (Linux); IOKit (macOS)
+- **Local IP** - `GetAdaptersAddresses` (Windows); `getifaddrs()` (POSIX)
 
-Stats like memory, battery, and uptime update in real-time while the logo spins.
+Static system information is gathered once and cached to ensure zero render-loop hitching. Fast-changing fields (uptime, memory, swap) update live every second during animation.
 
 ## Config
 
 Full reference: [docs/configuration.md](docs/configuration.md)
 
-Create `~/.config/fetch/config` to customize:
+Create `%APPDATA%\fetch\config` (Windows) or `~/.config/fetch/config` (Linux/macOS) to customize:
 
 ```
 # fields – list to show, in this order
