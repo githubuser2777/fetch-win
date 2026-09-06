@@ -113,6 +113,7 @@ void platform_set_resized_for_test(int val);
 void platform_reset_input_state_for_test(void);
 void platform_set_pending_bytes_for_test(int count);
 int  platform_get_pending_bytes_for_test(void);
+int  platform_is_ctrl_handler_registered_for_test(void);
 #endif
 
 #ifdef __cplusplus

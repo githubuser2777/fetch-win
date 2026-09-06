@@ -20,6 +20,9 @@
 #ifndef ENABLE_QUICK_EDIT_MODE
 #define ENABLE_QUICK_EDIT_MODE 0x0040
 #endif
+#ifndef ENABLE_PROCESSED_INPUT
+#define ENABLE_PROCESSED_INPUT 0x0001
+#endif
 
 /* --- Terminal State Encapsulation --- */
 
@@ -42,6 +45,7 @@ typedef struct {
   int conout_opened;
   int is_initialized;
   int is_cleaned_up;
+  int ctrl_handler_registered;
 } win_console_state_t;
 
 static win_console_state_t g_win_console = {0};
@@ -190,10 +194,12 @@ int platform_terminal_init(platform_term_caps_t *caps) {
     }
 
     /* Configure raw input mode:
-     * Disable line input, echo, processed input, and QuickEdit mode.
+     * Enable processed input so that CTRL_C_EVENT reliably reaches SetConsoleCtrlHandler.
+     * Disable line input, echo, and QuickEdit mode.
      * Enable window resize input and mouse input.
      */
-    DWORD requested_in_mode = ENABLE_EXTENDED_FLAGS | ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT;
+    DWORD requested_in_mode = ENABLE_EXTENDED_FLAGS | ENABLE_PROCESSED_INPUT |
+                              ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT;
     SetConsoleMode(hIn, requested_in_mode);
   }
 
@@ -207,8 +213,12 @@ int platform_terminal_init(platform_term_caps_t *caps) {
     caps->supports_mouse = supports_mouse;
   }
 
-  /* Register control handler for Ctrl+C / close */
-  SetConsoleCtrlHandler(console_ctrl_handler, TRUE);
+  /* Register control handler for Ctrl+C / close if not already registered */
+  if (!g_win_console.ctrl_handler_registered) {
+    if (SetConsoleCtrlHandler(console_ctrl_handler, TRUE)) {
+      g_win_console.ctrl_handler_registered = 1;
+    }
+  }
 
   if (!g_win_console.is_initialized) {
     atexit(platform_terminal_cleanup);
@@ -247,6 +257,12 @@ void platform_terminal_cleanup(void) {
     return;
   }
   g_win_console.is_cleaned_up = 1;
+
+  /* Unregister control handler */
+  if (g_win_console.ctrl_handler_registered) {
+    SetConsoleCtrlHandler(console_ctrl_handler, FALSE);
+    g_win_console.ctrl_handler_registered = 0;
+  }
 
   /* If VT is supported, disable mouse tracking and restore cursor visibility */
   if (g_win_console.is_tty && g_win_console.supports_vt) {
@@ -608,6 +624,14 @@ platform_input_event_t platform_poll_input(platform_mouse_event_t *mouse_event) 
         continue;
       }
 
+      /* Ctrl+C character (ETX / ASCII 3): treat as interruption */
+      if (k->uChar.AsciiChar == 3) {
+        INPUT_RECORD discard;
+        ReadConsoleInputA(hIn, &discard, 1, &num_read);
+        atomic_store(&g_interrupted, 1);
+        return INPUT_NONE;
+      }
+
       /*
        * SGR mouse escape sequence check:
        * When streamed through ConPTY/terminal as VT key events,
@@ -727,5 +751,9 @@ void platform_set_pending_bytes_for_test(int count) {
 
 int platform_get_pending_bytes_for_test(void) {
   return s_test_pending_avail;
+}
+
+int platform_is_ctrl_handler_registered_for_test(void) {
+  return g_win_console.ctrl_handler_registered;
 }
 #endif

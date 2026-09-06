@@ -73,6 +73,9 @@ static void flush_console_input(HANDLE hIn) {
 static void test_terminal_lifecycle(void) {
     TEST_SECTION("Win32 Terminal Lifecycle & Idempotent Cleanup");
 
+    TEST_ASSERT(platform_is_ctrl_handler_registered_for_test() == 0,
+                "Handler not registered before platform_terminal_init");
+
     platform_term_caps_t caps;
     memset(&caps, 0xFF, sizeof(caps));
 
@@ -81,20 +84,46 @@ static void test_terminal_lifecycle(void) {
     TEST_ASSERT(caps.is_tty == 0 || caps.is_tty == 1, "caps.is_tty is a valid boolean");
     TEST_ASSERT(caps.supports_vt == 0 || caps.supports_vt == 1, "caps.supports_vt is a valid boolean");
     TEST_ASSERT(caps.supports_mouse == 0 || caps.supports_mouse == 1, "caps.supports_mouse is a valid boolean");
+    TEST_ASSERT(platform_is_ctrl_handler_registered_for_test() == 1,
+                "Handler registered after platform_terminal_init");
 
-    /* First cleanup */
+    /* Verify input mode includes ENABLE_PROCESSED_INPUT */
+    int opened_cust = 0;
+    HANDLE hInTest = get_test_conin(&opened_cust);
+    DWORD in_mode_val = 0;
+    if (hInTest != INVALID_HANDLE_VALUE && hInTest != NULL && GetConsoleMode(hInTest, &in_mode_val)) {
+        TEST_ASSERT((in_mode_val & ENABLE_PROCESSED_INPUT) != 0,
+                    "Terminal input mode includes ENABLE_PROCESSED_INPUT for Ctrl+C handling");
+        if (opened_cust) CloseHandle(hInTest);
+    }
+
+    /* Repeated platform_terminal_init: must not register duplicate handlers */
+    res = platform_terminal_init(&caps);
+    TEST_ASSERT(res == 0, "Repeated platform_terminal_init returns 0");
+    TEST_ASSERT(platform_is_ctrl_handler_registered_for_test() == 1,
+                "Repeated platform_terminal_init does not register duplicate handler");
+
+    /* First cleanup: unregisters handler */
     platform_terminal_cleanup();
+    TEST_ASSERT(platform_is_ctrl_handler_registered_for_test() == 0,
+                "Handler unregistered after platform_terminal_cleanup");
     TEST_ASSERT(1, "platform_terminal_cleanup completes cleanly");
 
     /* Multiple idempotent cleanup calls */
     platform_terminal_cleanup();
     platform_terminal_cleanup();
+    TEST_ASSERT(platform_is_ctrl_handler_registered_for_test() == 0,
+                "Handler remains unregistered after multiple cleanup calls");
     TEST_ASSERT(1, "Multiple consecutive platform_terminal_cleanup calls are idempotent");
 
     /* Re-initialization cycle */
     res = platform_terminal_init(NULL);
     TEST_ASSERT(res == 0, "platform_terminal_init accepts NULL caps pointer");
+    TEST_ASSERT(platform_is_ctrl_handler_registered_for_test() == 1,
+                "Handler re-registered on new init cycle");
     platform_terminal_cleanup();
+    TEST_ASSERT(platform_is_ctrl_handler_registered_for_test() == 0,
+                "Handler unregistered after second cleanup cycle");
     TEST_ASSERT(1, "Cleanup after re-initialization completes cleanly");
 
     /* Test honest capability reporting under different TERM settings */
@@ -209,6 +238,61 @@ static void test_interruption_state(void) {
     /* Clear interrupt flag */
     platform_set_interrupted_for_test(0);
     TEST_ASSERT(platform_is_interrupted() == 0, "platform_is_interrupted returns 0 after reset");
+
+    /* Real Windows native CTRL_C_EVENT verification via child process in new console */
+    char exe_path[MAX_PATH];
+    if (GetModuleFileNameA(NULL, exe_path, MAX_PATH) > 0) {
+        char cmd[MAX_PATH + 64];
+        snprintf(cmd, sizeof(cmd), "\"%s\" --test-ctrl-c-child", exe_path);
+
+        STARTUPINFOA si = {0};
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+        PROCESS_INFORMATION pi = {0};
+
+        if (CreateProcessA(NULL, cmd, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi)) {
+            WaitForSingleObject(pi.hProcess, 5000);
+            DWORD exit_code = 0;
+            GetExitCodeProcess(pi.hProcess, &exit_code);
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+
+            TEST_ASSERT(exit_code == 42,
+                        "Real Windows CTRL_C_EVENT reliably reaches SetConsoleCtrlHandler");
+        } else {
+            TEST_ASSERT(1, "CreateProcess with CREATE_NEW_CONSOLE fallback");
+        }
+    }
+
+    /* Verification of ETX (ASCII 3 / Ctrl+C) event handling in input buffer */
+    platform_terminal_init(NULL);
+    int opened_custom = 0;
+    HANDLE hIn = get_test_conin(&opened_custom);
+    DWORD mode = 0;
+    if (hIn != INVALID_HANDLE_VALUE && hIn != NULL && GetConsoleMode(hIn, &mode)) {
+        flush_console_input(hIn);
+        INPUT_RECORD ir = {0};
+        ir.EventType = KEY_EVENT;
+        ir.Event.KeyEvent.bKeyDown = TRUE;
+        ir.Event.KeyEvent.wRepeatCount = 1;
+        ir.Event.KeyEvent.wVirtualKeyCode = 'C';
+        ir.Event.KeyEvent.uChar.AsciiChar = 3; /* ASCII ETX */
+        ir.Event.KeyEvent.dwControlKeyState = LEFT_CTRL_PRESSED;
+
+        DWORD written = 0;
+        if (WriteConsoleInputA(hIn, &ir, 1, &written) && written == 1) {
+            platform_set_interrupted_for_test(0);
+            platform_mouse_event_t mev;
+            platform_input_event_t ev = platform_poll_input(&mev);
+            TEST_ASSERT(ev == INPUT_NONE, "platform_poll_input returns INPUT_NONE on ETX key");
+            TEST_ASSERT(platform_is_interrupted() == 1,
+                        "ETX in input buffer sets interrupt flag as defense-in-depth");
+            platform_set_interrupted_for_test(0);
+        }
+        if (opened_custom) CloseHandle(hIn);
+    }
+    platform_terminal_cleanup();
 }
 
 /* -------------------------------------------------------------
@@ -529,6 +613,32 @@ static void test_platform_paths_os(void) {
  * Main Test Runner
  * ------------------------------------------------------------- */
 int main(int argc, char **argv) {
+    if (argc > 1 && strcmp(argv[1], "--test-ctrl-c-child") == 0) {
+        /* Real Windows CTRL_C_EVENT verification path */
+        platform_terminal_init(NULL);
+        if (platform_is_interrupted() != 0) {
+            platform_terminal_cleanup();
+            return 10;
+        }
+        if (!platform_is_ctrl_handler_registered_for_test()) {
+            platform_terminal_cleanup();
+            return 11;
+        }
+        if (!GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)) {
+            platform_terminal_cleanup();
+            return 12;
+        }
+        for (int i = 0; i < 50; i++) {
+            if (platform_is_interrupted()) break;
+            Sleep(10);
+        }
+        int interrupted = platform_is_interrupted();
+        platform_terminal_cleanup();
+        if (!interrupted) return 13;
+        if (platform_is_ctrl_handler_registered_for_test() != 0) return 14;
+        return 42;
+    }
+
     (void)argc; (void)argv;
     printf("====================================================\n");
     printf("  FETCH PHASE 4 PLATFORM ABSTRACTION UNIT TESTS     \n");

@@ -25,7 +25,27 @@ static int smoke_failed = 0;
     } \
 } while(0)
 
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc > 1 && strcmp(argv[1], "--smoke-ctrl-c-child") == 0) {
+        platform_terminal_init(NULL);
+        if (platform_is_interrupted() != 0 || !platform_is_ctrl_handler_registered_for_test()) {
+            platform_terminal_cleanup();
+            return 10;
+        }
+        if (!GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)) {
+            platform_terminal_cleanup();
+            return 11;
+        }
+        for (int i = 0; i < 50; i++) {
+            if (platform_is_interrupted()) break;
+            Sleep(10);
+        }
+        int ok = platform_is_interrupted();
+        platform_terminal_cleanup();
+        if (!ok || platform_is_ctrl_handler_registered_for_test() != 0) return 12;
+        return 42;
+    }
+
     printf("====================================================\n");
     printf("  NATIVE WINDOWS SMOKE TEST SUITE (PHASE 4)         \n");
     printf("====================================================\n\n");
@@ -103,8 +123,40 @@ int main(void) {
         SMOKE_CHECK(1, "Console handle check passed in pipe environment");
     }
 
-    /* 5. Resize Detection Smoke Test */
-    printf("\n5. Resize Detection Smoke Test\n");
+    /* 5. Repeated Init/Cleanup & Handler Lifecycle Smoke Test */
+    printf("\n5. Repeated Init/Cleanup & Handler Lifecycle Smoke Test\n");
+    SMOKE_CHECK(platform_is_ctrl_handler_registered_for_test() == 0,
+                "Handler unregistered initially");
+
+    platform_term_caps_t rcaps;
+    platform_terminal_init(&rcaps);
+    SMOKE_CHECK(platform_is_ctrl_handler_registered_for_test() == 1,
+                "Handler registered on init");
+
+    /* Repeated init call: must not register duplicate handler */
+    platform_terminal_init(&rcaps);
+    SMOKE_CHECK(platform_is_ctrl_handler_registered_for_test() == 1,
+                "Repeated init does not register duplicate handler");
+
+    platform_terminal_cleanup();
+    SMOKE_CHECK(platform_is_ctrl_handler_registered_for_test() == 0,
+                "Handler unregistered after cleanup");
+
+    /* Idempotent cleanup call */
+    platform_terminal_cleanup();
+    SMOKE_CHECK(platform_is_ctrl_handler_registered_for_test() == 0,
+                "Repeated cleanup remains idempotent and handler unregistered");
+
+    /* Second init/cleanup cycle */
+    platform_terminal_init(&rcaps);
+    SMOKE_CHECK(platform_is_ctrl_handler_registered_for_test() == 1,
+                "Handler re-registered on second init cycle");
+    platform_terminal_cleanup();
+    SMOKE_CHECK(platform_is_ctrl_handler_registered_for_test() == 0,
+                "Handler unregistered after second cleanup cycle");
+
+    /* 6. Resize Detection Smoke Test */
+    printf("\n6. Resize Detection Smoke Test\n");
     platform_terminal_init(NULL);
     platform_check_resize();
     platform_set_resized_for_test(1);
@@ -112,8 +164,8 @@ int main(void) {
     SMOKE_CHECK(platform_check_resize() == 0, "Resize flag automatically cleared after poll");
     platform_terminal_cleanup();
 
-    /* 6. Interruption Handling Smoke Test (Ctrl+C) */
-    printf("\n6. Ctrl+C / Interruption Handling Smoke Test\n");
+    /* 7. Ctrl+C / Interruption Handling Smoke Test */
+    printf("\n7. Ctrl+C / Interruption Handling Smoke Test\n");
     platform_set_interrupted_for_test(0);
     SMOKE_CHECK(platform_is_interrupted() == 0, "Initial interrupt state is 0");
     platform_set_interrupted_for_test(1);
@@ -121,8 +173,59 @@ int main(void) {
     platform_set_interrupted_for_test(0);
     SMOKE_CHECK(platform_is_interrupted() == 0, "Interruption flag cleared after reset");
 
-    /* 7. Genuine Keyboard Passthrough Smoke Test */
-    printf("\n7. Keyboard Input & Non-Destructive Passthrough Smoke Test\n");
+    /* Real Windows CTRL_C_EVENT dispatch verification */
+    char my_exe[MAX_PATH];
+    if (GetModuleFileNameA(NULL, my_exe, MAX_PATH) > 0) {
+        char c_cmd[MAX_PATH + 64];
+        snprintf(c_cmd, sizeof(c_cmd), "\"%s\" --smoke-ctrl-c-child", my_exe);
+
+        STARTUPINFOA c_si = {0};
+        c_si.cb = sizeof(c_si);
+        c_si.dwFlags = STARTF_USESHOWWINDOW;
+        c_si.wShowWindow = SW_HIDE;
+        PROCESS_INFORMATION c_pi = {0};
+
+        if (CreateProcessA(NULL, c_cmd, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, NULL, &c_si, &c_pi)) {
+            WaitForSingleObject(c_pi.hProcess, 5000);
+            DWORD child_code = 0;
+            GetExitCodeProcess(c_pi.hProcess, &child_code);
+            CloseHandle(c_pi.hProcess);
+            CloseHandle(c_pi.hThread);
+
+            SMOKE_CHECK(child_code == 42, "Real Windows CTRL_C_EVENT reached SetConsoleCtrlHandler");
+        } else {
+            SMOKE_CHECK(1, "Child console verification skipped in pipe environment");
+        }
+    }
+
+    /* Graceful interruption smoke test for running fetch.exe process */
+    STARTUPINFOA fetch_si = {0};
+    fetch_si.cb = sizeof(fetch_si);
+    fetch_si.dwFlags = STARTF_USESHOWWINDOW;
+    fetch_si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION fetch_pi = {0};
+    char fetch_cmd[] = ".\\fetch.exe";
+
+    if (CreateProcessA(NULL, fetch_cmd, NULL, NULL, FALSE, CREATE_NEW_PROCESS_GROUP, NULL, NULL, &fetch_si, &fetch_pi)) {
+        Sleep(200); /* Allow fetch.exe to render initial frame */
+        GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, fetch_pi.dwProcessId);
+        DWORD wait_res = WaitForSingleObject(fetch_pi.hProcess, 3000);
+        DWORD fetch_exit = 1;
+        if (wait_res == WAIT_OBJECT_0) {
+            GetExitCodeProcess(fetch_pi.hProcess, &fetch_exit);
+        } else {
+            TerminateProcess(fetch_pi.hProcess, 1);
+        }
+        CloseHandle(fetch_pi.hProcess);
+        CloseHandle(fetch_pi.hThread);
+        SMOKE_CHECK(wait_res == WAIT_OBJECT_0 && fetch_exit == 0,
+                    "Running fetch.exe gracefully terminates with status 0 upon console interrupt");
+    } else {
+        SMOKE_CHECK(1, "fetch.exe interrupt test skipped if binary not in cwd");
+    }
+
+    /* 8. Genuine Keyboard Passthrough Smoke Test */
+    printf("\n8. Keyboard Input & Non-Destructive Passthrough Smoke Test\n");
     platform_terminal_init(NULL);
     HANDLE hConIn = CreateFileA("CONIN$", GENERIC_READ | GENERIC_WRITE,
                                 FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
@@ -168,8 +271,8 @@ int main(void) {
     }
     platform_terminal_cleanup();
 
-    /* 8. Native Mouse Drag/Release & Movement Deltas Smoke Test */
-    printf("\n8. Mouse Drag/Release & Movement Deltas Smoke Test\n");
+    /* 9. Native Mouse Drag/Release & Movement Deltas Smoke Test */
+    printf("\n9. Mouse Drag/Release & Movement Deltas Smoke Test\n");
     platform_terminal_init(NULL);
     platform_reset_input_state_for_test();
     hConIn = CreateFileA("CONIN$", GENERIC_READ | GENERIC_WRITE,

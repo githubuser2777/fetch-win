@@ -426,4 +426,8 @@ void platform_set_pending_bytes_for_test(int count) {
 int platform_get_pending_bytes_for_test(void) {
   return s_test_pending_avail;
 }
+
+int platform_is_ctrl_handler_registered_for_test(void) {
+  return 0;
+}
 #endif
