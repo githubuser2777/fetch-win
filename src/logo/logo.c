@@ -600,8 +600,8 @@ void logo_set_distro_colors(const char *distro, const char **out_outer, const ch
              strcasecmp(distro, "win") == 0 ||
              strcasecmp(distro, "win11") == 0 ||
              strcasecmp(distro, "win10") == 0) {
-    outer = "\033[1;36m"; // bold cyan
-    inner = "\033[1;37m"; // bold white
+    outer = "\033[1;34m"; // bold blue (3D depth/sides)
+    inner = "\033[1;36m"; // bold cyan (front face)
   }
 
   if (out_outer) *out_outer = outer;

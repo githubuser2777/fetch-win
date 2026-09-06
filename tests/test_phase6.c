@@ -259,24 +259,27 @@ static void test_windows_logo(void) {
     int fake_res = logo_load_builtin(&logo_fake, "completely_unknown_distro_xyz");
     TEST_ASSERT(fake_res == 0, "Unrelated unknown logo does not succeed in built-in loader");
 
-    /* 3.4 Windows Distro Color Scheme */
+    /* 3.4 Windows Distro Color Scheme (Two-tone: Blue sides, Cyan face) */
     const char *outer = NULL;
     const char *inner = NULL;
     logo_set_distro_colors("windows", &outer, &inner);
-    TEST_ASSERT(outer != NULL && strstr(outer, "36m") != NULL, "Windows outer color is bold cyan (36m)");
-    TEST_ASSERT(inner != NULL && strstr(inner, "37m") != NULL, "Windows inner color is bold white (37m)");
+    TEST_ASSERT(outer != NULL && strstr(outer, "34m") != NULL, "Windows outer color is bold blue (34m)");
+    TEST_ASSERT(inner != NULL && strstr(inner, "36m") != NULL, "Windows inner color is bold cyan (36m)");
 
     outer = NULL; inner = NULL;
     logo_set_distro_colors("win", &outer, &inner);
-    TEST_ASSERT(outer != NULL && strstr(outer, "36m") != NULL, "Alias 'win' resolves same cyan color");
+    TEST_ASSERT(outer != NULL && strstr(outer, "34m") != NULL, "Alias 'win' outer color is bold blue (34m)");
+    TEST_ASSERT(inner != NULL && strstr(inner, "36m") != NULL, "Alias 'win' inner color is bold cyan (36m)");
 
     outer = NULL; inner = NULL;
     logo_set_distro_colors("win10", &outer, &inner);
-    TEST_ASSERT(outer != NULL && strstr(outer, "36m") != NULL, "Alias 'win10' resolves same cyan color");
+    TEST_ASSERT(outer != NULL && strstr(outer, "34m") != NULL, "Alias 'win10' outer color is bold blue (34m)");
+    TEST_ASSERT(inner != NULL && strstr(inner, "36m") != NULL, "Alias 'win10' inner color is bold cyan (36m)");
 
     outer = NULL; inner = NULL;
     logo_set_distro_colors("win11", &outer, &inner);
-    TEST_ASSERT(outer != NULL && strstr(outer, "36m") != NULL, "Alias 'win11' resolves same cyan color");
+    TEST_ASSERT(outer != NULL && strstr(outer, "34m") != NULL, "Alias 'win11' outer color is bold blue (34m)");
+    TEST_ASSERT(inner != NULL && strstr(inner, "36m") != NULL, "Alias 'win11' inner color is bold cyan (36m)");
 
     /* 3.5 Fastfetch Defense-in-Depth */
     fetch_logo_t logo_ff;
