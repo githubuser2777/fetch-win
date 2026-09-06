@@ -2877,11 +2877,11 @@ int main(int argc, char **argv) {
     config_box = 1;
 
   if (logo_name) {
-    int got = load_logo_fastfetch(logo_name);
-    if (!got) {
-      if (logo_load_builtin(&g_logo, logo_name)) {
-        logo_sync_to_globals(&g_logo);
-      } else {
+    if (logo_load_builtin(&g_logo, logo_name)) {
+      logo_sync_to_globals(&g_logo);
+    } else {
+      int got = load_logo_fastfetch(logo_name);
+      if (!got) {
         load_default_logo();
       }
     }
@@ -2897,17 +2897,22 @@ int main(int argc, char **argv) {
     // Only try fastfetch if no custom logo.txt was loaded
     int got_logo = has_custom_logo;
     if (!got_logo && distro[0]) {
-      got_logo = load_logo_fastfetch(distro);
-      if (!got_logo && distro_id_like[0]) {
-        char like_copy[64];
-        strncpy(like_copy, distro_id_like, sizeof(like_copy) - 1);
-        like_copy[sizeof(like_copy) - 1] = '\0';
-        char *tok = strtok(like_copy, " ");
-        while (tok && !got_logo) {
-          got_logo = load_logo_fastfetch(tok);
-          if (got_logo)
-            strncpy(distro, tok, sizeof(distro) - 1);
-          tok = strtok(NULL, " ");
+      if (logo_load_builtin(&g_logo, distro)) {
+        logo_sync_to_globals(&g_logo);
+        got_logo = 1;
+      } else {
+        got_logo = load_logo_fastfetch(distro);
+        if (!got_logo && distro_id_like[0]) {
+          char like_copy[64];
+          strncpy(like_copy, distro_id_like, sizeof(like_copy) - 1);
+          like_copy[sizeof(like_copy) - 1] = '\0';
+          char *tok = strtok(like_copy, " ");
+          while (tok && !got_logo) {
+            got_logo = load_logo_fastfetch(tok);
+            if (got_logo)
+              strncpy(distro, tok, sizeof(distro) - 1);
+            tok = strtok(NULL, " ");
+          }
         }
       }
     }

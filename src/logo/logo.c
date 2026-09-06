@@ -58,7 +58,9 @@ static const char *windows_ascii[] = {
     "/////////////////  /////////////////",
     "/////////////////  /////////////////",
     "/////////////////  /////////////////",
+    "/////////////////  /////////////////",
     "",
+    "/////////////////  /////////////////",
     "/////////////////  /////////////////",
     "/////////////////  /////////////////",
     "/////////////////  /////////////////",
@@ -227,15 +229,22 @@ static int load_logo_ff_colored(fetch_logo_t *logo, const char *name) {
   if (!is_fastfetch_available())
     return 0;
 
-  char cmd[512];
-  snprintf(cmd, sizeof(cmd),
-           "fastfetch -c none -l %s -s break --pipe false", name);
+  const char *ff_name = name;
+  if (strcasecmp(name, "windows") == 0)
+    ff_name = "win10";
 
 #ifdef _WIN32
+  char cmd[512];
+  snprintf(cmd, sizeof(cmd),
+           "cmd.exe /c \"fastfetch --show-errors -c none -l %s -s break --pipe false 2>&1\"", ff_name);
+
   if (platform_run_command) {
     char out_buf[65536] = "";
     int status = platform_run_command(cmd, out_buf, sizeof(out_buf), 2500);
     if (status != 0 || out_buf[0] == '\0')
+      return 0;
+
+    if (strstr(out_buf, "Failed to resolve logo source") != NULL)
       return 0;
 
     char *p = out_buf;
@@ -290,13 +299,19 @@ static int load_logo_ff_colored(fetch_logo_t *logo, const char *name) {
   }
   return 0;
 #else
-  strncat(cmd, " 2>/dev/null", sizeof(cmd) - strlen(cmd) - 1);
+  char cmd[512];
+  snprintf(cmd, sizeof(cmd),
+           "fastfetch --show-errors -c none -l %s -s break --pipe false 2>&1", ff_name);
   FILE *fp = popen(cmd, "r");
   if (!fp)
     return 0;
 
   char buf[512];
   while (logo->rows < MAX_LOGO_ROWS && fgets(buf, sizeof(buf), fp)) {
+    if (strstr(buf, "Failed to resolve logo source") != NULL) {
+      pclose(fp);
+      return 0;
+    }
     int len = strlen(buf);
     while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
       buf[--len] = '\0';
@@ -348,6 +363,10 @@ static int load_logo_ff_plain(fetch_logo_t *logo, const char *name) {
   if (!is_fastfetch_available())
     return 0;
 
+  const char *ff_name = name;
+  if (strcasecmp(name, "windows") == 0)
+    ff_name = "win10";
+
 #ifdef _WIN32
   if (platform_run_command) {
     char out_buf[65536] = "";
@@ -356,7 +375,7 @@ static int load_logo_ff_plain(fetch_logo_t *logo, const char *name) {
       return 0;
 
     int found = 0;
-    int name_len = strlen(name);
+    int name_len = strlen(ff_name);
     char *p = out_buf;
 
     while (*p) {
@@ -375,7 +394,7 @@ static int load_logo_ff_plain(fetch_logo_t *logo, const char *name) {
       if (!found) {
         if (len > 0 && len <= name_len + 1 && buf[len - 1] == ':') {
           buf[len - 1] = '\0';
-          if (strcasecmp(buf, name) == 0)
+          if (strcasecmp(buf, ff_name) == 0)
             found = 1;
         }
         continue;
@@ -413,7 +432,7 @@ static int load_logo_ff_plain(fetch_logo_t *logo, const char *name) {
 
   char buf[512];
   int found = 0;
-  int name_len = strlen(name);
+  int name_len = strlen(ff_name);
 
   while (fgets(buf, sizeof(buf), fp)) {
     int len = strlen(buf);
@@ -423,7 +442,7 @@ static int load_logo_ff_plain(fetch_logo_t *logo, const char *name) {
     if (!found) {
       if (len > 0 && len <= name_len + 1 && buf[len - 1] == ':') {
         buf[len - 1] = '\0';
-        if (strcasecmp(buf, name) == 0)
+        if (strcasecmp(buf, ff_name) == 0)
           found = 1;
       }
       continue;
