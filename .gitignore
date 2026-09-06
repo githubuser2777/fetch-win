@@ -1,6 +1,13 @@
 fetch
+fetch.exe
+*.exe
+*.o
+*.obj
+build/
+build*/
 debian/files
 debian/.debhelper/
 debian/fetch/
 debian/*.substvars
 debian/*.debhelper.log
+
