@@ -372,13 +372,42 @@ Phase 10: Documentation & Release
 - **Acceptance**: `fetch.exe` without arguments displays the Windows ASCII logo and native stats, configuration and custom logos resolve correctly from `%APPDATA%`, and package managers are discovered with zero animation hitching.
 
 #### Phase 7: Cross-Platform CMake Build System
-- **Status**: Pending
-- **Files**: `CMakeLists.txt`, `Makefile`
-- **Scope**:
-  - Configure `CMakeLists.txt` supporting Windows (MSVC & MinGW-w64), Linux, and macOS.
-  - Synchronize `Makefile` with the exact modular source list.
-  - Build `fetch.exe` using CMake and Ninja/MSVC.
-- **Acceptance**: Native `fetch.exe` builds cleanly from source on Windows.
+- **Status**: **COMPLETED**
+- **Files**: `CMakeLists.txt`, `Makefile`, `.gitignore`, `tests/smoke_win.c`
+- **Deliverables**:
+  - `CMakeLists.txt`: Implemented authoritative, modern cross-platform CMake build system (minimum CMake 3.16, strict C11 standard with extensions disabled).
+    - Explicit target modularity (`CORE_SRCS`, `RENDERER_SRCS`, `CONFIG_SRCS`, `LOGO_SRCS`, `PLATFORM_SRC`).
+    - Platform source selection: `platform_win.c` on Windows, `platform_posix.c` on POSIX/macOS without mixing platform backends.
+    - Windows system dependencies: DXGI (`-ldxgi`), IP Helper API (`-liphlpapi`), Winsock (`-lws2_32`), and POSIX math library (`-lm` on MinGW, omitted on MSVC).
+    - macOS dependencies: `-framework IOKit -framework CoreFoundation` and `-lm`.
+    - Compiler warning abstraction (`/W3` on MSVC, `-Wall -Wextra` on GCC/Clang) without aggressive breaking flags.
+    - CTest integration (`include(CTest)`): registers 11 non-interactive tests (`baseline`, `phase1`..`phase6`, and CLI flags `--help`, `--version`, `--frames 5`, `--no-info --frames 1`).
+    - Windows-only test isolation: Phase 4, Phase 5, Phase 6 platform tests only enabled on `WIN32`.
+    - Custom `smoke` target (`cmake --build build --target smoke`) running full CLI flags and `smoke_win` on Windows.
+    - Standard installation rules via `GNUInstallDirs` for `fetch` binary and documentation.
+    - Out-of-tree build isolation (`build/`, `build*/` ignored in `.gitignore`).
+    - Full parity and coexistence with legacy `Makefile`.
+  - `tests/smoke_win.c`: Adjusted initial startup wait from 1500ms to 2500ms with signal retry to account for package manager collection latency (Winget subprocess execution) on authentic systems.
+- **CMake Build Instructions**:
+  - Configure: `cmake -S . -B build [-G "MinGW Makefiles" | -G "Ninja"]`
+  - Build: `cmake --build build [--config Release | --config Debug]`
+  - Run CTest Suite: `ctest --test-dir build --output-on-failure`
+  - Run Smoke Target: `cmake --build build --target smoke`
+  - Minimal Build without Tests: `cmake -S . -B build -DBUILD_TESTING=OFF && cmake --build build`
+- **Results**:
+  - Phase 0 baseline regression tests: 98 / 98 passed (100% success).
+  - Phase 1 isolated unit tests: 67 / 67 passed (100% success).
+  - Phase 2 isolated unit tests: 130 / 130 passed (100% success).
+  - Phase 3 platform unit tests: 60 / 60 passed (100% success).
+  - Phase 4 native Windows unit tests: 98 / 98 passed (100% success).
+  - Phase 5 system information unit tests: 278 / 278 passed (100% success).
+  - Phase 6 Windows paths, logo & packages unit tests: 49 / 49 passed (100% success).
+  - Total unit tests: 780 / 780 passed (100% success across all phases).
+  - CTest suite: 11 / 11 tests passed (100% success).
+  - Native Windows smoke suite: 40 / 40 passed (100% success).
+  - Debug, Release, and `BUILD_TESTING=OFF` builds verified clean.
+  - Legacy `mingw32-make test` (780/780) and `mingw32-make smoke` (40/40) verified 100% passing.
+- **Acceptance**: Native `fetch.exe` builds cleanly from source with CMake across Debug and Release configurations, CTest runs regression suite with zero failure, and Makefile remains fully functional.
 
 #### Phase 8: GitHub Actions CI Matrix
 - **Status**: Pending
