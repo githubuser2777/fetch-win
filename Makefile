@@ -52,17 +52,33 @@ install: fetch
 clean:
 	-$(RM) fetch fetch.exe test_baseline test_baseline.exe test_phase1 test_phase1.exe test_phase2 test_phase2.exe test_phase3 test_phase3.exe test_phase4 test_phase4.exe test_phase5 test_phase5.exe test_phase6 test_phase6.exe smoke_win smoke_win.exe
 
-test: test_baseline$(EXE_EXT) test_phase1$(EXE_EXT) test_phase2$(EXE_EXT) test_phase3$(EXE_EXT) test_phase4$(EXE_EXT) test_phase5$(EXE_EXT) test_phase6$(EXE_EXT)
+ifeq ($(OS),Windows_NT)
+TEST_TARGETS = test_baseline$(EXE_EXT) test_phase1$(EXE_EXT) test_phase2$(EXE_EXT) test_phase3$(EXE_EXT) test_phase4$(EXE_EXT) test_phase5$(EXE_EXT) test_phase6$(EXE_EXT)
+else
+TEST_TARGETS = test_baseline$(EXE_EXT) test_phase1$(EXE_EXT) test_phase2$(EXE_EXT) test_phase3$(EXE_EXT)
+endif
+
+test: $(TEST_TARGETS)
 	$(RUN_PREFIX)test_baseline$(EXE_EXT)
 	$(RUN_PREFIX)test_phase1$(EXE_EXT)
 	$(RUN_PREFIX)test_phase2$(EXE_EXT)
 	$(RUN_PREFIX)test_phase3$(EXE_EXT)
+ifeq ($(OS),Windows_NT)
 	$(RUN_PREFIX)test_phase4$(EXE_EXT)
 	$(RUN_PREFIX)test_phase5$(EXE_EXT)
 	$(RUN_PREFIX)test_phase6$(EXE_EXT)
+endif
 
+ifeq ($(OS),Windows_NT)
 smoke: fetch smoke_win$(EXE_EXT)
 	$(RUN_PREFIX)smoke_win$(EXE_EXT)
+else
+smoke: fetch
+	$(RUN_PREFIX)fetch --help
+	$(RUN_PREFIX)fetch --version
+	$(RUN_PREFIX)fetch --frames 5
+	$(RUN_PREFIX)fetch --no-info --frames 1
+endif
 
 test_baseline$(EXE_EXT): tests/test_baseline.c $(SRCS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_VERSION='"$(VERSION)"' -DFETCH_CODENAME='"$(CODENAME)"' -DFETCH_ARCH='"$(UNAME_M)"' -DFETCH_OS='"$(UNAME_S)"' -I. -I tests/include tests/test_baseline.c src/core/common.c src/renderer/renderer.c src/config/config.c src/logo/logo.c $(PLATFORM_SRC) -o $@ $(LDLIBS)
@@ -76,6 +92,7 @@ test_phase2$(EXE_EXT): tests/test_phase2.c src/core/common.c src/renderer/render
 test_phase3$(EXE_EXT): tests/test_phase3.c src/platform/platform_posix.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_TESTING -I. tests/test_phase3.c src/platform/platform_posix.c -o $@ $(LDLIBS)
 
+ifeq ($(OS),Windows_NT)
 test_phase4$(EXE_EXT): tests/test_phase4.c src/platform/platform_win.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_TESTING -I. tests/test_phase4.c src/platform/platform_win.c -o $@ $(LDLIBS)
 
@@ -87,5 +104,6 @@ test_phase6$(EXE_EXT): tests/test_phase6.c src/core/common.c src/renderer/render
 
 smoke_win$(EXE_EXT): tests/smoke_win.c src/platform/platform_win.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_TESTING -I. tests/smoke_win.c src/platform/platform_win.c -o $@ $(LDLIBS)
+endif
 
 .PHONY: install clean test smoke
