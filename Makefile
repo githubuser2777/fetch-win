@@ -36,7 +36,7 @@ ifeq ($(UNAME_S),Darwin)
   LDLIBS += -framework IOKit -framework CoreFoundation
 endif
 ifeq ($(OS),Windows_NT)
-  LDLIBS += -lws2_32
+  LDLIBS += -lws2_32 -ldxgi -liphlpapi -lversion
   CFLAGS += -I tests/include
 endif
 
@@ -50,14 +50,15 @@ install: fetch
 	install -m 755 fetch $(DESTDIR)$(PREFIX)/bin/fetch
 
 clean:
-	-$(RM) fetch fetch.exe test_baseline test_baseline.exe test_phase1 test_phase1.exe test_phase2 test_phase2.exe test_phase3 test_phase3.exe test_phase4 test_phase4.exe smoke_win smoke_win.exe
+	-$(RM) fetch fetch.exe test_baseline test_baseline.exe test_phase1 test_phase1.exe test_phase2 test_phase2.exe test_phase3 test_phase3.exe test_phase4 test_phase4.exe test_phase5 test_phase5.exe smoke_win smoke_win.exe
 
-test: test_baseline$(EXE_EXT) test_phase1$(EXE_EXT) test_phase2$(EXE_EXT) test_phase3$(EXE_EXT) test_phase4$(EXE_EXT)
+test: test_baseline$(EXE_EXT) test_phase1$(EXE_EXT) test_phase2$(EXE_EXT) test_phase3$(EXE_EXT) test_phase4$(EXE_EXT) test_phase5$(EXE_EXT)
 	$(RUN_PREFIX)test_baseline$(EXE_EXT)
 	$(RUN_PREFIX)test_phase1$(EXE_EXT)
 	$(RUN_PREFIX)test_phase2$(EXE_EXT)
 	$(RUN_PREFIX)test_phase3$(EXE_EXT)
 	$(RUN_PREFIX)test_phase4$(EXE_EXT)
+	$(RUN_PREFIX)test_phase5$(EXE_EXT)
 
 smoke: fetch smoke_win$(EXE_EXT)
 	$(RUN_PREFIX)smoke_win$(EXE_EXT)
@@ -76,6 +77,9 @@ test_phase3$(EXE_EXT): tests/test_phase3.c src/platform/platform_posix.c
 
 test_phase4$(EXE_EXT): tests/test_phase4.c src/platform/platform_win.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_TESTING -I. tests/test_phase4.c src/platform/platform_win.c -o $@ $(LDLIBS)
+
+test_phase5$(EXE_EXT): tests/test_phase5.c src/platform/platform_win.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_TESTING -I. tests/test_phase5.c src/platform/platform_win.c -o $@ $(LDLIBS)
 
 smoke_win$(EXE_EXT): tests/smoke_win.c src/platform/platform_win.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_TESTING -I. tests/smoke_win.c src/platform/platform_win.c -o $@ $(LDLIBS)

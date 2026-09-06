@@ -103,6 +103,39 @@ void platform_get_logo_path(char *out, size_t outsz);
  */
 int platform_detect_os_id(char *out, size_t outsz);
 
+/* --- System Information Gathers --- */
+
+typedef void (*platform_emit_info_cb)(const char *label, const char *fmt, ...);
+
+void platform_gather_title(char *out_user, size_t usersz, char *out_host, size_t hostsz);
+void platform_gather_os(char *out, size_t outsz);
+void platform_gather_host(char *out, size_t outsz);
+void platform_gather_kernel(char *out, size_t outsz);
+void platform_gather_uptime(char *out, size_t outsz);
+void platform_gather_packages(char *out, size_t outsz);
+void platform_gather_shell(char *out, size_t outsz);
+void platform_gather_display(platform_emit_info_cb emit_cb);
+void platform_gather_wm(char *out, size_t outsz);
+void platform_gather_displaymanager(char *out, size_t outsz);
+void platform_gather_theme(char *out, size_t outsz);
+void platform_gather_icons(char *out, size_t outsz);
+void platform_gather_font(char *out, size_t outsz);
+void platform_gather_cursor(char *out, size_t outsz);
+void platform_gather_terminal(char *out, size_t outsz);
+void platform_gather_cpu(char *out, size_t outsz);
+void platform_gather_gpu(platform_emit_info_cb emit_cb);
+void platform_gather_memory(char *out, size_t outsz);
+void platform_gather_swap(char *out, size_t outsz);
+void platform_gather_disk(const char *path, char *out, size_t outsz);
+void platform_gather_ip(platform_emit_info_cb emit_cb);
+void platform_gather_battery(char *out_label, size_t labelsz, char *out_val, size_t valsz);
+void platform_gather_locale(char *out, size_t outsz);
+
+/**
+ * Invalidate cached static system information, allowing refresh on next query.
+ */
+void platform_invalidate_info_cache(void);
+
 #ifdef FETCH_TESTING
 /* --- Test Control Helpers (guarded for test harness only) --- */
 platform_input_event_t platform_parse_input_chunk(const char *buf, size_t len,

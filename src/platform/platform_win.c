@@ -1,5 +1,12 @@
 #define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
+#include <tlhelp32.h>
+#include <iphlpapi.h>
+#define COBJMACROS
+#include <initguid.h>
+#include <dxgi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -723,6 +730,1122 @@ int platform_detect_os_id(char *out, size_t outsz) {
   strncpy(out, "windows", outsz - 1);
   out[outsz - 1] = '\0';
   return 1;
+}
+
+/* --- Native Windows System Information Helpers --- */
+
+static void utf16_to_utf8(const WCHAR *wstr, char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+  out[0] = '\0';
+  if (!wstr || wstr[0] == L'\0') return;
+  int res = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, out, (int)outsz, NULL, NULL);
+  if (res <= 0) {
+    out[outsz - 1] = '\0';
+  }
+}
+
+static void trim_and_normalize_spaces(char *str) {
+  if (!str) return;
+  char *src = str;
+  while (*src && ((unsigned char)*src <= ' ' || *src == '\t' || *src == '\r' || *src == '\n')) {
+    src++;
+  }
+  char *dst = str;
+  int in_space = 0;
+  while (*src) {
+    if ((unsigned char)*src <= ' ' || *src == '\t' || *src == '\r' || *src == '\n') {
+      if (!in_space) {
+        *dst++ = ' ';
+        in_space = 1;
+      }
+    } else {
+      *dst++ = *src;
+      in_space = 0;
+    }
+    src++;
+  }
+  while (dst > str && *(dst - 1) == ' ') {
+    dst--;
+  }
+  *dst = '\0';
+}
+
+static int reg_get_sz(HKEY root, const WCHAR *subkey, const WCHAR *valname, WCHAR *out, DWORD out_chars) {
+  if (!out || out_chars == 0) return 0;
+  out[0] = L'\0';
+  HKEY hKey = NULL;
+  if (RegOpenKeyExW(root, subkey, 0, KEY_READ, &hKey) != ERROR_SUCCESS) return 0;
+  DWORD type = 0;
+  DWORD bytes = out_chars * sizeof(WCHAR);
+  LONG ret = RegQueryValueExW(hKey, valname, NULL, &type, (LPBYTE)out, &bytes);
+  RegCloseKey(hKey);
+  if (ret == ERROR_SUCCESS && (type == REG_SZ || type == REG_EXPAND_SZ)) {
+    out[out_chars - 1] = L'\0';
+    return 1;
+  }
+  out[0] = L'\0';
+  return 0;
+}
+
+static int reg_get_dword(HKEY root, const WCHAR *subkey, const WCHAR *valname, DWORD *out_val) {
+  if (!out_val) return 0;
+  *out_val = 0;
+  HKEY hKey = NULL;
+  if (RegOpenKeyExW(root, subkey, 0, KEY_READ, &hKey) != ERROR_SUCCESS) return 0;
+  DWORD type = 0;
+  DWORD val = 0;
+  DWORD bytes = sizeof(val);
+  LONG ret = RegQueryValueExW(hKey, valname, NULL, &type, (LPBYTE)&val, &bytes);
+  RegCloseKey(hKey);
+  if (ret == ERROR_SUCCESS && type == REG_DWORD) {
+    *out_val = val;
+    return 1;
+  }
+  return 0;
+}
+
+typedef LONG (WINAPI *RtlGetVersionFn)(PRTL_OSVERSIONINFOW);
+
+static int win32_get_version(OSVERSIONINFOW *ovi) {
+  if (!ovi) return 0;
+  memset(ovi, 0, sizeof(*ovi));
+  ovi->dwOSVersionInfoSize = sizeof(*ovi);
+  HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+  if (ntdll) {
+    RtlGetVersionFn pfn = (RtlGetVersionFn)(void*)GetProcAddress(ntdll, "RtlGetVersion");
+    if (pfn && pfn((PRTL_OSVERSIONINFOW)ovi) == 0) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* --- Static Information Caching --- */
+
+#define MAX_CACHED_ITEMS 8
+
+typedef struct {
+  char label[64];
+  char val[256];
+} win_info_item_t;
+
+typedef struct {
+  int title_valid;
+  char title_user[128];
+  char title_host[128];
+
+  int os_valid;
+  char os[256];
+
+  int host_valid;
+  char host[256];
+
+  int kernel_valid;
+  char kernel[128];
+
+  int shell_valid;
+  char shell[128];
+
+  int terminal_valid;
+  char terminal[128];
+
+  int wm_valid;
+  char wm[64];
+
+  int dm_valid;
+  char dm[64];
+
+  int theme_valid;
+  char theme[64];
+
+  int icons_valid;
+  char icons[64];
+
+  int font_valid;
+  char font[128];
+
+  int cursor_valid;
+  char cursor[64];
+
+  int locale_valid;
+  char locale[64];
+
+  int cpu_valid;
+  char cpu[256];
+
+  int display_valid;
+  int display_count;
+  win_info_item_t displays[MAX_CACHED_ITEMS];
+
+  int gpu_valid;
+  int gpu_count;
+  win_info_item_t gpus[MAX_CACHED_ITEMS];
+
+  int ip_valid;
+  int ip_count;
+  win_info_item_t ips[MAX_CACHED_ITEMS];
+} win_system_cache_t;
+
+static win_system_cache_t g_sys_cache = {0};
+
+void platform_invalidate_info_cache(void) {
+  memset(&g_sys_cache, 0, sizeof(g_sys_cache));
+}
+
+/* --- System Information Collectors --- */
+
+void platform_gather_title(char *out_user, size_t usersz, char *out_host, size_t hostsz) {
+  if (out_user && usersz > 0) out_user[0] = '\0';
+  if (out_host && hostsz > 0) out_host[0] = '\0';
+
+  if (!g_sys_cache.title_valid) {
+    WCHAR wuser[128] = {0};
+    DWORD wusersz = 128;
+    if (GetUserNameW(wuser, &wusersz) && wuser[0] != L'\0') {
+      utf16_to_utf8(wuser, g_sys_cache.title_user, sizeof(g_sys_cache.title_user));
+    } else {
+      const char *env_user = getenv("USERNAME");
+      if (env_user && env_user[0]) {
+        snprintf(g_sys_cache.title_user, sizeof(g_sys_cache.title_user), "%s", env_user);
+      } else {
+        snprintf(g_sys_cache.title_user, sizeof(g_sys_cache.title_user), "user");
+      }
+    }
+
+    WCHAR whost[256] = {0};
+    DWORD whostsz = 256;
+    if (!GetComputerNameExW(ComputerNamePhysicalDnsHostname, whost, &whostsz) || whost[0] == L'\0') {
+      whostsz = 256;
+      GetComputerNameW(whost, &whostsz);
+    }
+    if (whost[0] != L'\0') {
+      utf16_to_utf8(whost, g_sys_cache.title_host, sizeof(g_sys_cache.title_host));
+    } else {
+      const char *env_host = getenv("COMPUTERNAME");
+      if (env_host && env_host[0]) {
+        snprintf(g_sys_cache.title_host, sizeof(g_sys_cache.title_host), "%s", env_host);
+      } else {
+        snprintf(g_sys_cache.title_host, sizeof(g_sys_cache.title_host), "localhost");
+      }
+    }
+    g_sys_cache.title_valid = 1;
+  }
+
+  if (out_user && usersz > 0) {
+    strncpy(out_user, g_sys_cache.title_user, usersz - 1);
+    out_user[usersz - 1] = '\0';
+  }
+  if (out_host && hostsz > 0) {
+    strncpy(out_host, g_sys_cache.title_host, hostsz - 1);
+    out_host[hostsz - 1] = '\0';
+  }
+}
+
+void platform_gather_os(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+
+  if (g_sys_cache.os_valid) {
+    strncpy(out, g_sys_cache.os, outsz - 1);
+    out[outsz - 1] = '\0';
+    return;
+  }
+
+  WCHAR wprod[128] = {0};
+  WCHAR wdisp[64] = {0};
+  WCHAR wbuild[64] = {0};
+  DWORD ubr = 0;
+
+  reg_get_sz(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"ProductName", wprod, 128);
+  if (!reg_get_sz(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"DisplayVersion", wdisp, 64)) {
+    reg_get_sz(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"ReleaseId", wdisp, 64);
+  }
+  reg_get_sz(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"CurrentBuildNumber", wbuild, 64);
+  reg_get_dword(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"UBR", &ubr);
+
+  OSVERSIONINFOW ovi;
+  int has_ovi = win32_get_version(&ovi);
+
+  if (wbuild[0] == L'\0' && has_ovi) {
+    swprintf(wbuild, 64, L"%lu", ovi.dwBuildNumber);
+  }
+
+  DWORD build_num = (DWORD)wcstoul(wbuild, NULL, 10);
+  if (build_num == 0 && has_ovi) {
+    build_num = ovi.dwBuildNumber;
+  }
+
+  char prod[128] = {0};
+  utf16_to_utf8(wprod, prod, sizeof(prod));
+  trim_and_normalize_spaces(prod);
+
+  /* On Windows 11, Microsoft retains "Windows 10" in ProductName for app compatibility */
+  if (build_num >= 22000) {
+    char *win10 = strstr(prod, "Windows 10");
+    if (win10) {
+      char tmp[128];
+      snprintf(tmp, sizeof(tmp), "Windows 11%s", win10 + 10);
+      strncpy(prod, tmp, sizeof(prod) - 1);
+      prod[sizeof(prod) - 1] = '\0';
+    } else if (prod[0] == '\0') {
+      snprintf(prod, sizeof(prod), "Windows 11");
+    }
+  } else if (prod[0] == '\0') {
+    snprintf(prod, sizeof(prod), "Windows");
+  }
+
+  char disp[64] = {0};
+  utf16_to_utf8(wdisp, disp, sizeof(disp));
+  trim_and_normalize_spaces(disp);
+
+  SYSTEM_INFO si;
+  GetNativeSystemInfo(&si);
+  const char *arch = "x86_64";
+  if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64) arch = "arm64";
+  else if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_INTEL) arch = "i686";
+  else if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM) arch = "arm";
+
+  if (disp[0] != '\0' && ubr > 0) {
+    snprintf(g_sys_cache.os, sizeof(g_sys_cache.os), "%s %s (Build %lu.%lu) %s",
+             prod, disp, build_num, ubr, arch);
+  } else if (disp[0] != '\0') {
+    snprintf(g_sys_cache.os, sizeof(g_sys_cache.os), "%s %s (Build %lu) %s",
+             prod, disp, build_num, arch);
+  } else if (build_num > 0) {
+    snprintf(g_sys_cache.os, sizeof(g_sys_cache.os), "%s (Build %lu) %s",
+             prod, build_num, arch);
+  } else {
+    snprintf(g_sys_cache.os, sizeof(g_sys_cache.os), "%s %s", prod, arch);
+  }
+
+  g_sys_cache.os_valid = 1;
+  strncpy(out, g_sys_cache.os, outsz - 1);
+  out[outsz - 1] = '\0';
+}
+
+void platform_gather_host(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+
+  if (g_sys_cache.host_valid) {
+    strncpy(out, g_sys_cache.host, outsz - 1);
+    out[outsz - 1] = '\0';
+    return;
+  }
+
+  WCHAR wmfg[128] = {0};
+  WCHAR wprod[128] = {0};
+  WCHAR wfam[128] = {0};
+
+  reg_get_sz(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"SystemManufacturer", wmfg, 128);
+  reg_get_sz(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"SystemProductName", wprod, 128);
+  reg_get_sz(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"SystemFamily", wfam, 128);
+
+  char mfg[128] = {0}, prod[128] = {0}, fam[128] = {0};
+  utf16_to_utf8(wmfg, mfg, sizeof(mfg));
+  utf16_to_utf8(wprod, prod, sizeof(prod));
+  utf16_to_utf8(wfam, fam, sizeof(fam));
+
+  trim_and_normalize_spaces(mfg);
+  trim_and_normalize_spaces(prod);
+  trim_and_normalize_spaces(fam);
+
+  /* Filter generic OEM placeholder names */
+  if (strcmp(prod, "System Product Name") == 0 ||
+      strcmp(prod, "To be filled by O.E.M.") == 0 ||
+      strcmp(prod, "Default string") == 0 ||
+      strcmp(prod, "None") == 0) {
+    prod[0] = '\0';
+  }
+  if (prod[0] == '\0' && fam[0] != '\0' &&
+      strcmp(fam, "To be filled by O.E.M.") != 0 &&
+      strcmp(fam, "Default string") != 0) {
+    strncpy(prod, fam, sizeof(prod) - 1);
+    prod[sizeof(prod) - 1] = '\0';
+  }
+
+  /* Deduplicate manufacturer if product begins with it */
+  if (mfg[0] && prod[0]) {
+    size_t mlen = strlen(mfg);
+    if (_strnicmp(prod, mfg, mlen) == 0) {
+      mfg[0] = '\0';
+    }
+  }
+
+  if (mfg[0] && prod[0]) {
+    snprintf(g_sys_cache.host, sizeof(g_sys_cache.host), "%s %s", mfg, prod);
+  } else if (prod[0]) {
+    snprintf(g_sys_cache.host, sizeof(g_sys_cache.host), "%s", prod);
+  } else if (mfg[0]) {
+    snprintf(g_sys_cache.host, sizeof(g_sys_cache.host), "%s", mfg);
+  } else {
+    g_sys_cache.host[0] = '\0';
+  }
+
+  g_sys_cache.host_valid = 1;
+  strncpy(out, g_sys_cache.host, outsz - 1);
+  out[outsz - 1] = '\0';
+}
+
+void platform_gather_kernel(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+
+  if (g_sys_cache.kernel_valid) {
+    strncpy(out, g_sys_cache.kernel, outsz - 1);
+    out[outsz - 1] = '\0';
+    return;
+  }
+
+  OSVERSIONINFOW ovi;
+  if (win32_get_version(&ovi)) {
+    snprintf(g_sys_cache.kernel, sizeof(g_sys_cache.kernel), "Windows NT %lu.%lu.%lu",
+             ovi.dwMajorVersion, ovi.dwMinorVersion, ovi.dwBuildNumber);
+  } else {
+    WCHAR wbuild[64] = {0};
+    reg_get_sz(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"CurrentBuildNumber", wbuild, 64);
+    char build[64] = {0};
+    utf16_to_utf8(wbuild, build, sizeof(build));
+    if (build[0] != '\0') {
+      snprintf(g_sys_cache.kernel, sizeof(g_sys_cache.kernel), "Windows NT 10.0.%s", build);
+    } else {
+      snprintf(g_sys_cache.kernel, sizeof(g_sys_cache.kernel), "Windows NT 10.0");
+    }
+  }
+
+  g_sys_cache.kernel_valid = 1;
+  strncpy(out, g_sys_cache.kernel, outsz - 1);
+  out[outsz - 1] = '\0';
+}
+
+void platform_gather_uptime(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+
+  ULONGLONG ms = GetTickCount64();
+  unsigned long total_sec = (unsigned long)(ms / 1000ULL);
+  unsigned long days = total_sec / 86400UL;
+  unsigned long hours = (total_sec % 86400UL) / 3600UL;
+  unsigned long mins = (total_sec % 3600UL) / 60UL;
+
+  if (days > 0) {
+    snprintf(out, outsz, "%lu days, %lu hours, %lu mins", days, hours, mins);
+  } else if (hours > 0) {
+    snprintf(out, outsz, "%lu hours, %lu mins", hours, mins);
+  } else if (mins > 0) {
+    snprintf(out, outsz, "%lu mins", mins);
+  } else {
+    snprintf(out, outsz, "0 mins");
+  }
+}
+
+void platform_gather_packages(char *out, size_t outsz) {
+  /* Stubbed for Phase 6 */
+  if (out && outsz > 0) out[0] = '\0';
+}
+
+static void detect_shell_and_terminal(char *shell_out, size_t shell_sz, char *term_out, size_t term_sz) {
+  if (shell_out && shell_sz > 0) shell_out[0] = '\0';
+  if (term_out && term_sz > 0) term_out[0] = '\0';
+
+  /* 1. Terminal via environment variables */
+  if (term_out && term_sz > 0) {
+    const char *wt = getenv("WT_SESSION");
+    const char *tp = getenv("TERM_PROGRAM");
+    if (wt && wt[0]) {
+      snprintf(term_out, term_sz, "Windows Terminal");
+    } else if (tp && tp[0]) {
+      if (strcmp(tp, "vscode") == 0) snprintf(term_out, term_sz, "Visual Studio Code");
+      else if (strcmp(tp, "Apple_Terminal") == 0) snprintf(term_out, term_sz, "Apple Terminal");
+      else if (strcmp(tp, "WarpTerminal") == 0) snprintf(term_out, term_sz, "Warp");
+      else snprintf(term_out, term_sz, "%s", tp);
+    }
+  }
+
+  /* 2. Process hierarchy walk via Toolhelp32 */
+  DWORD pid = GetCurrentProcessId();
+  HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (hSnap != INVALID_HANDLE_VALUE) {
+    PROCESSENTRY32W pe = { sizeof(pe) };
+    DWORD cur_pid = pid;
+
+    for (int depth = 0; depth < 8; depth++) {
+      DWORD parent_pid = 0;
+      WCHAR exe_name[MAX_PATH] = {0};
+
+      if (Process32FirstW(hSnap, &pe)) {
+        do {
+          if (pe.th32ProcessID == cur_pid) {
+            parent_pid = pe.th32ParentProcessID;
+            wcsncpy(exe_name, pe.szExeFile, MAX_PATH - 1);
+            break;
+          }
+        } while (Process32NextW(hSnap, &pe));
+      }
+
+      if (depth > 0 && exe_name[0] != L'\0') {
+        char name[MAX_PATH] = {0};
+        utf16_to_utf8(exe_name, name, sizeof(name));
+
+        /* Identify shell */
+        if (shell_out && shell_out[0] == '\0') {
+          if (_stricmp(name, "pwsh.exe") == 0) {
+            snprintf(shell_out, shell_sz, "PowerShell 7");
+          } else if (_stricmp(name, "powershell.exe") == 0) {
+            snprintf(shell_out, shell_sz, "PowerShell 5");
+          } else if (_stricmp(name, "cmd.exe") == 0) {
+            snprintf(shell_out, shell_sz, "cmd.exe");
+          } else if (_stricmp(name, "bash.exe") == 0) {
+            snprintf(shell_out, shell_sz, "Bash");
+          } else if (_stricmp(name, "zsh.exe") == 0) {
+            snprintf(shell_out, shell_sz, "Zsh");
+          } else if (_stricmp(name, "nu.exe") == 0) {
+            snprintf(shell_out, shell_sz, "Nushell");
+          } else if (_stricmp(name, "fish.exe") == 0) {
+            snprintf(shell_out, shell_sz, "Fish");
+          }
+        }
+
+        /* Identify terminal if not yet found */
+        if (term_out && term_out[0] == '\0') {
+          if (_stricmp(name, "WindowsTerminal.exe") == 0) {
+            snprintf(term_out, term_sz, "Windows Terminal");
+          } else if (_stricmp(name, "Code.exe") == 0) {
+            snprintf(term_out, term_sz, "Visual Studio Code");
+          } else if (_stricmp(name, "alacritty.exe") == 0) {
+            snprintf(term_out, term_sz, "Alacritty");
+          } else if (_stricmp(name, "wezterm-gui.exe") == 0) {
+            snprintf(term_out, term_sz, "WezTerm");
+          } else if (_stricmp(name, "mintty.exe") == 0) {
+            snprintf(term_out, term_sz, "MinTTY");
+          } else if (_stricmp(name, "conhost.exe") == 0) {
+            snprintf(term_out, term_sz, "Windows Console (conhost)");
+          }
+        }
+      }
+
+      if (parent_pid == 0 || parent_pid == cur_pid) break;
+      cur_pid = parent_pid;
+    }
+    CloseHandle(hSnap);
+  }
+
+  /* Fallback for shell */
+  if (shell_out && shell_out[0] == '\0') {
+    const char *comspec = getenv("COMSPEC");
+    if (comspec && comspec[0]) {
+      const char *slash = strrchr(comspec, '\\');
+      if (slash) snprintf(shell_out, shell_sz, "%s", slash + 1);
+      else snprintf(shell_out, shell_sz, "%s", comspec);
+    } else {
+      snprintf(shell_out, shell_sz, "cmd.exe");
+    }
+  }
+
+  /* Fallback for terminal */
+  if (term_out && term_out[0] == '\0') {
+    snprintf(term_out, term_sz, "Windows Console");
+  }
+}
+
+void platform_gather_shell(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+
+  if (!g_sys_cache.shell_valid) {
+    detect_shell_and_terminal(g_sys_cache.shell, sizeof(g_sys_cache.shell),
+                              g_sys_cache.terminal, sizeof(g_sys_cache.terminal));
+    g_sys_cache.shell_valid = 1;
+    g_sys_cache.terminal_valid = 1;
+  }
+
+  strncpy(out, g_sys_cache.shell, outsz - 1);
+  out[outsz - 1] = '\0';
+}
+
+void platform_gather_terminal(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+
+  if (!g_sys_cache.terminal_valid) {
+    detect_shell_and_terminal(g_sys_cache.shell, sizeof(g_sys_cache.shell),
+                              g_sys_cache.terminal, sizeof(g_sys_cache.terminal));
+    g_sys_cache.shell_valid = 1;
+    g_sys_cache.terminal_valid = 1;
+  }
+
+  strncpy(out, g_sys_cache.terminal, outsz - 1);
+  out[outsz - 1] = '\0';
+}
+
+void platform_gather_display(platform_emit_info_cb emit_cb) {
+  if (!emit_cb) return;
+
+  if (g_sys_cache.display_valid) {
+    for (int i = 0; i < g_sys_cache.display_count; i++) {
+      emit_cb(g_sys_cache.displays[i].label, "%s", g_sys_cache.displays[i].val);
+    }
+    return;
+  }
+
+  g_sys_cache.display_count = 0;
+
+  DISPLAY_DEVICEW dd = { sizeof(dd) };
+  DWORD devNum = 0;
+  while (EnumDisplayDevicesW(NULL, devNum, &dd, 0) && g_sys_cache.display_count < MAX_CACHED_ITEMS) {
+    if (dd.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) {
+      DEVMODEW dm = { sizeof(dm) };
+      dm.dmSize = sizeof(dm);
+      if (EnumDisplaySettingsExW(dd.DeviceName, ENUM_CURRENT_SETTINGS, &dm, 0)) {
+        char dev_string[128] = {0};
+        utf16_to_utf8(dd.DeviceString, dev_string, sizeof(dev_string));
+        trim_and_normalize_spaces(dev_string);
+
+        win_info_item_t *item = &g_sys_cache.displays[g_sys_cache.display_count++];
+        strncpy(item->label, "Display", sizeof(item->label) - 1);
+        item->label[sizeof(item->label) - 1] = '\0';
+
+        if (dev_string[0] != '\0') {
+          snprintf(item->val, sizeof(item->val), "%s: %lux%lu @ %lu Hz",
+                   dev_string, dm.dmPelsWidth, dm.dmPelsHeight, dm.dmDisplayFrequency);
+        } else {
+          snprintf(item->val, sizeof(item->val), "%lux%lu @ %lu Hz",
+                   dm.dmPelsWidth, dm.dmPelsHeight, dm.dmDisplayFrequency);
+        }
+        emit_cb(item->label, "%s", item->val);
+      }
+    }
+    devNum++;
+  }
+
+  if (g_sys_cache.display_count == 0) {
+    int w = GetSystemMetrics(SM_CXSCREEN);
+    int h = GetSystemMetrics(SM_CYSCREEN);
+    if (w > 0 && h > 0) {
+      win_info_item_t *item = &g_sys_cache.displays[g_sys_cache.display_count++];
+      strncpy(item->label, "Display", sizeof(item->label) - 1);
+      item->label[sizeof(item->label) - 1] = '\0';
+      snprintf(item->val, sizeof(item->val), "%dx%d", w, h);
+      emit_cb(item->label, "%s", item->val);
+    }
+  }
+
+  g_sys_cache.display_valid = 1;
+}
+
+void platform_gather_wm(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+
+  if (g_sys_cache.wm_valid) {
+    strncpy(out, g_sys_cache.wm, outsz - 1);
+    out[outsz - 1] = '\0';
+    return;
+  }
+
+  const char *wm = "DWM";
+
+  HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (hSnap != INVALID_HANDLE_VALUE) {
+    PROCESSENTRY32W pe = { sizeof(pe) };
+    if (Process32FirstW(hSnap, &pe)) {
+      do {
+        if (_wcsicmp(pe.szExeFile, L"glazewm.exe") == 0) {
+          wm = "GlazeWM";
+          break;
+        } else if (_wcsicmp(pe.szExeFile, L"komorebi.exe") == 0) {
+          wm = "komorebi";
+          break;
+        }
+      } while (Process32NextW(hSnap, &pe));
+    }
+    CloseHandle(hSnap);
+  }
+
+  strncpy(g_sys_cache.wm, wm, sizeof(g_sys_cache.wm) - 1);
+  g_sys_cache.wm[sizeof(g_sys_cache.wm) - 1] = '\0';
+  g_sys_cache.wm_valid = 1;
+
+  strncpy(out, g_sys_cache.wm, outsz - 1);
+  out[outsz - 1] = '\0';
+}
+
+void platform_gather_displaymanager(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+  snprintf(out, outsz, "N/A");
+}
+
+void platform_gather_theme(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+
+  if (g_sys_cache.theme_valid) {
+    strncpy(out, g_sys_cache.theme, outsz - 1);
+    out[outsz - 1] = '\0';
+    return;
+  }
+
+  DWORD light = 0;
+  if (reg_get_dword(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", L"AppsUseLightTheme", &light)) {
+    snprintf(g_sys_cache.theme, sizeof(g_sys_cache.theme), "%s", light ? "Light" : "Dark");
+  } else {
+    snprintf(g_sys_cache.theme, sizeof(g_sys_cache.theme), "Dark");
+  }
+
+  g_sys_cache.theme_valid = 1;
+  strncpy(out, g_sys_cache.theme, outsz - 1);
+  out[outsz - 1] = '\0';
+}
+
+void platform_gather_icons(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+  snprintf(out, outsz, "Windows Default");
+}
+
+void platform_gather_font(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+  out[0] = '\0';
+
+  if (g_sys_cache.font_valid) {
+    strncpy(out, g_sys_cache.font, outsz - 1);
+    out[outsz - 1] = '\0';
+    return;
+  }
+
+  CONSOLE_FONT_INFOEX cfi = { sizeof(cfi) };
+  HANDLE hOut = g_win_console.hOut;
+  if (hOut == NULL || hOut == INVALID_HANDLE_VALUE) {
+    hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+  }
+
+  if (hOut != INVALID_HANDLE_VALUE && hOut != NULL &&
+      GetCurrentConsoleFontEx(hOut, FALSE, &cfi) &&
+      cfi.FaceName[0] != L'\0') {
+    char face[64] = {0};
+    utf16_to_utf8(cfi.FaceName, face, sizeof(face));
+    trim_and_normalize_spaces(face);
+    if (face[0] != '\0') {
+      if (cfi.dwFontSize.Y > 0) {
+        snprintf(g_sys_cache.font, sizeof(g_sys_cache.font), "%s (%ldpt)", face, cfi.dwFontSize.Y);
+      } else {
+        snprintf(g_sys_cache.font, sizeof(g_sys_cache.font), "%s", face);
+      }
+    }
+  }
+
+  g_sys_cache.font_valid = 1;
+  strncpy(out, g_sys_cache.font, outsz - 1);
+  out[outsz - 1] = '\0';
+}
+
+void platform_gather_cursor(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+
+  if (g_sys_cache.cursor_valid) {
+    strncpy(out, g_sys_cache.cursor, outsz - 1);
+    out[outsz - 1] = '\0';
+    return;
+  }
+
+  WCHAR scheme[128] = {0};
+  if (reg_get_sz(HKEY_CURRENT_USER, L"Control Panel\\Cursors", NULL, scheme, 128) && scheme[0] != L'\0') {
+    char cs[128] = {0};
+    utf16_to_utf8(scheme, cs, sizeof(cs));
+    trim_and_normalize_spaces(cs);
+    if (cs[0] != '\0') {
+      snprintf(g_sys_cache.cursor, sizeof(g_sys_cache.cursor), "%s", cs);
+    } else {
+      snprintf(g_sys_cache.cursor, sizeof(g_sys_cache.cursor), "Windows Default");
+    }
+  } else {
+    snprintf(g_sys_cache.cursor, sizeof(g_sys_cache.cursor), "Windows Default");
+  }
+
+  g_sys_cache.cursor_valid = 1;
+  strncpy(out, g_sys_cache.cursor, outsz - 1);
+  out[outsz - 1] = '\0';
+}
+
+void platform_gather_locale(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+
+  if (g_sys_cache.locale_valid) {
+    strncpy(out, g_sys_cache.locale, outsz - 1);
+    out[outsz - 1] = '\0';
+    return;
+  }
+
+  WCHAR loc[LOCALE_NAME_MAX_LENGTH] = {0};
+  if (GetUserDefaultLocaleName(loc, LOCALE_NAME_MAX_LENGTH) && loc[0] != L'\0') {
+    char loc_u8[64] = {0};
+    utf16_to_utf8(loc, loc_u8, sizeof(loc_u8));
+    snprintf(g_sys_cache.locale, sizeof(g_sys_cache.locale), "%s", loc_u8);
+  } else {
+    const char *lang = getenv("LANG");
+    if (lang && lang[0]) {
+      snprintf(g_sys_cache.locale, sizeof(g_sys_cache.locale), "%s", lang);
+    } else {
+      snprintf(g_sys_cache.locale, sizeof(g_sys_cache.locale), "en-US");
+    }
+  }
+
+  g_sys_cache.locale_valid = 1;
+  strncpy(out, g_sys_cache.locale, outsz - 1);
+  out[outsz - 1] = '\0';
+}
+
+void platform_gather_cpu(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+
+  if (g_sys_cache.cpu_valid) {
+    strncpy(out, g_sys_cache.cpu, outsz - 1);
+    out[outsz - 1] = '\0';
+    return;
+  }
+
+  WCHAR wcpu[128] = {0};
+  DWORD mhz = 0;
+  reg_get_sz(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", L"ProcessorNameString", wcpu, 128);
+  reg_get_dword(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", L"~MHz", &mhz);
+
+  char cpu_name[128] = {0};
+  utf16_to_utf8(wcpu, cpu_name, sizeof(cpu_name));
+  trim_and_normalize_spaces(cpu_name);
+
+  /* Strip trailing "@ ... GHz" if present in processor name string */
+  char *at_sign = strrchr(cpu_name, '@');
+  if (at_sign && at_sign > cpu_name && *(at_sign - 1) == ' ') {
+    *(at_sign - 1) = '\0';
+    trim_and_normalize_spaces(cpu_name);
+  }
+
+  SYSTEM_INFO si;
+  GetNativeSystemInfo(&si);
+  DWORD cores = si.dwNumberOfProcessors;
+
+  if (cpu_name[0] == '\0') {
+    const char *env_cpu = getenv("PROCESSOR_IDENTIFIER");
+    if (env_cpu && env_cpu[0]) {
+      snprintf(cpu_name, sizeof(cpu_name), "%s", env_cpu);
+    } else {
+      snprintf(cpu_name, sizeof(cpu_name), "Unknown CPU");
+    }
+  }
+
+  if (mhz > 0) {
+    double ghz = (double)mhz / 1000.0;
+    snprintf(g_sys_cache.cpu, sizeof(g_sys_cache.cpu), "%s (%lu) @ %.2f GHz", cpu_name, cores, ghz);
+  } else {
+    snprintf(g_sys_cache.cpu, sizeof(g_sys_cache.cpu), "%s (%lu)", cpu_name, cores);
+  }
+
+  g_sys_cache.cpu_valid = 1;
+  strncpy(out, g_sys_cache.cpu, outsz - 1);
+  out[outsz - 1] = '\0';
+}
+
+void platform_gather_gpu(platform_emit_info_cb emit_cb) {
+  if (!emit_cb) return;
+
+  if (g_sys_cache.gpu_valid) {
+    for (int i = 0; i < g_sys_cache.gpu_count; i++) {
+      emit_cb(g_sys_cache.gpus[i].label, "%s", g_sys_cache.gpus[i].val);
+    }
+    return;
+  }
+
+  g_sys_cache.gpu_count = 0;
+
+  typedef struct {
+    char name[128];
+    const char *type;
+    int has_display;
+    int is_discrete;
+    int priority;
+  } gpu_cand_t;
+
+  gpu_cand_t cands[MAX_CACHED_ITEMS];
+  int num_cands = 0;
+
+  IDXGIFactory1 *factory = NULL;
+  HRESULT hr = CreateDXGIFactory1(&IID_IDXGIFactory1, (void**)&factory);
+  if (SUCCEEDED(hr) && factory) {
+    UINT i = 0;
+    IDXGIAdapter1 *adapter = NULL;
+    while (num_cands < MAX_CACHED_ITEMS &&
+           IDXGIFactory1_EnumAdapters1(factory, i, &adapter) != DXGI_ERROR_NOT_FOUND) {
+      DXGI_ADAPTER_DESC1 desc1;
+      if (SUCCEEDED(IDXGIAdapter1_GetDesc1(adapter, &desc1))) {
+        int is_sw = (desc1.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
+        if (desc1.VendorId == 0x1414) is_sw = 1;
+
+        char name[128] = {0};
+        utf16_to_utf8(desc1.Description, name, sizeof(name));
+        trim_and_normalize_spaces(name);
+
+        if (strstr(name, "Microsoft Basic") ||
+            strstr(name, "Basic Render Driver") ||
+            strstr(name, "Basic Display") ||
+            strstr(name, "Software Adapter")) {
+          is_sw = 1;
+        }
+
+        if (!is_sw && name[0] != '\0') {
+          IDXGIOutput *output = NULL;
+          int has_output = 0;
+          if (IDXGIAdapter1_EnumOutputs(adapter, 0, &output) == S_OK) {
+            has_output = 1;
+            IDXGIOutput_Release(output);
+          }
+
+          const char *type = NULL;
+          int is_discrete = 0;
+          size_t vram_mb = (size_t)(desc1.DedicatedVideoMemory / (1024ULL * 1024ULL));
+          size_t shared_mb = (size_t)(desc1.SharedSystemMemory / (1024ULL * 1024ULL));
+
+          if (desc1.VendorId == 0x10DE) {
+            type = "Discrete";
+            is_discrete = 1;
+          } else if (vram_mb >= 2048) {
+            type = "Discrete";
+            is_discrete = 1;
+          } else if (vram_mb <= 512 && shared_mb > vram_mb) {
+            if (desc1.VendorId == 0x8086 || desc1.VendorId == 0x1002) {
+              type = "Integrated";
+            }
+          }
+
+          gpu_cand_t *c = &cands[num_cands++];
+          strncpy(c->name, name, sizeof(c->name) - 1);
+          c->name[sizeof(c->name) - 1] = '\0';
+          c->type = type;
+          c->has_display = has_output;
+          c->is_discrete = is_discrete;
+          c->priority = (has_output ? 100 : 0) + (is_discrete ? 10 : 0) + (10 - (int)i);
+        }
+      }
+      IDXGIAdapter1_Release(adapter);
+      adapter = NULL;
+      i++;
+    }
+    IDXGIFactory1_Release(factory);
+  }
+
+  for (int a = 0; a < num_cands - 1; a++) {
+    for (int b = a + 1; b < num_cands; b++) {
+      if (cands[b].priority > cands[a].priority) {
+        gpu_cand_t tmp = cands[a];
+        cands[a] = cands[b];
+        cands[b] = tmp;
+      }
+    }
+  }
+
+  for (int k = 0; k < num_cands; k++) {
+    win_info_item_t *item = &g_sys_cache.gpus[g_sys_cache.gpu_count++];
+    strncpy(item->label, "GPU", sizeof(item->label) - 1);
+    item->label[sizeof(item->label) - 1] = '\0';
+    if (cands[k].type) {
+      snprintf(item->val, sizeof(item->val), "%s [%s]", cands[k].name, cands[k].type);
+    } else {
+      snprintf(item->val, sizeof(item->val), "%s", cands[k].name);
+    }
+    emit_cb(item->label, "%s", item->val);
+  }
+
+  if (g_sys_cache.gpu_count == 0) {
+    WCHAR wdesc[128] = {0};
+    if (reg_get_sz(HKEY_LOCAL_MACHINE,
+                   L"SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0000",
+                   L"DriverDesc", wdesc, 128)) {
+      char desc[128] = {0};
+      utf16_to_utf8(wdesc, desc, sizeof(desc));
+      trim_and_normalize_spaces(desc);
+      if (desc[0] && !strstr(desc, "Basic Display") && !strstr(desc, "Basic Render")) {
+        win_info_item_t *item = &g_sys_cache.gpus[g_sys_cache.gpu_count++];
+        strncpy(item->label, "GPU", sizeof(item->label) - 1);
+        item->label[sizeof(item->label) - 1] = '\0';
+        snprintf(item->val, sizeof(item->val), "%s", desc);
+        emit_cb(item->label, "%s", item->val);
+      }
+    }
+  }
+
+  g_sys_cache.gpu_valid = 1;
+}
+
+void platform_gather_memory(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+
+  MEMORYSTATUSEX ms = { sizeof(ms) };
+  if (!GlobalMemoryStatusEx(&ms) || ms.ullTotalPhys == 0) {
+    out[0] = '\0';
+    return;
+  }
+
+  double total_gib = (double)ms.ullTotalPhys / (1024.0 * 1024.0 * 1024.0);
+  double avail_gib = (double)ms.ullAvailPhys / (1024.0 * 1024.0 * 1024.0);
+  double used_gib = total_gib - avail_gib;
+  int pct = (int)((ms.ullTotalPhys - ms.ullAvailPhys) * 100ULL / ms.ullTotalPhys);
+
+  const char *color = pct >= 80 ? "31" : pct >= 50 ? "93" : "32";
+  snprintf(out, outsz, "%.2f GiB / %.2f GiB (\033[%sm%d%%\033[0m)", used_gib, total_gib, color, pct);
+}
+
+void platform_gather_swap(char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+
+  MEMORYSTATUSEX ms = { sizeof(ms) };
+  if (!GlobalMemoryStatusEx(&ms) || ms.ullTotalPageFile == 0) {
+    out[0] = '\0';
+    return;
+  }
+
+  double total_gib = (double)ms.ullTotalPageFile / (1024.0 * 1024.0 * 1024.0);
+  double avail_gib = (double)ms.ullAvailPageFile / (1024.0 * 1024.0 * 1024.0);
+  double used_gib = total_gib - avail_gib;
+  int pct = (int)((ms.ullTotalPageFile - ms.ullAvailPageFile) * 100ULL / ms.ullTotalPageFile);
+
+  const char *color = pct >= 80 ? "31" : pct >= 50 ? "93" : "32";
+  snprintf(out, outsz, "%.2f GiB / %.2f GiB (\033[%sm%d%%\033[0m)", used_gib, total_gib, color, pct);
+}
+
+void platform_gather_disk(const char *path, char *out, size_t outsz) {
+  if (!out || outsz == 0) return;
+  out[0] = '\0';
+
+  WCHAR wdrive[64] = L"C:\\";
+  if (path && path[0] != '\0' && strcmp(path, "/") != 0) {
+    MultiByteToWideChar(CP_UTF8, 0, path, -1, wdrive, 63);
+    wdrive[63] = L'\0';
+    size_t wlen = wcslen(wdrive);
+    if (wlen > 0 && wdrive[wlen - 1] != L'\\') {
+      wdrive[wlen] = L'\\';
+      wdrive[wlen + 1] = L'\0';
+    }
+  }
+
+  UINT dt = GetDriveTypeW(wdrive);
+  if (dt != DRIVE_FIXED && dt != DRIVE_REMOVABLE) {
+    return;
+  }
+
+  ULARGE_INTEGER free_bytes, total_bytes, total_free;
+  if (!GetDiskFreeSpaceExW(wdrive, &free_bytes, &total_bytes, &total_free) || total_bytes.QuadPart == 0) {
+    return;
+  }
+
+  WCHAR wfs[64] = {0};
+  GetVolumeInformationW(wdrive, NULL, 0, NULL, NULL, NULL, wfs, 64);
+  char fs[64] = {0};
+  utf16_to_utf8(wfs, fs, sizeof(fs));
+
+  double total_gib = (double)total_bytes.QuadPart / (1024.0 * 1024.0 * 1024.0);
+  double free_gib = (double)free_bytes.QuadPart / (1024.0 * 1024.0 * 1024.0);
+  double used_gib = total_gib - free_gib;
+  int pct = (int)(used_gib * 100.0 / total_gib);
+  const char *color = pct >= 80 ? "31" : pct >= 50 ? "93" : "32";
+
+  char drive_u8[64] = {0};
+  utf16_to_utf8(wdrive, drive_u8, sizeof(drive_u8));
+  size_t dlen = strlen(drive_u8);
+  if (dlen > 0 && drive_u8[dlen - 1] == '\\') {
+    drive_u8[dlen - 1] = '\0';
+  }
+
+  if (fs[0] != '\0') {
+    snprintf(out, outsz, "%.2f GiB / %.2f GiB (\033[%sm%d%%\033[0m) - %s",
+             used_gib, total_gib, color, pct, fs);
+  } else {
+    snprintf(out, outsz, "%.2f GiB / %.2f GiB (\033[%sm%d%%\033[0m)", used_gib, total_gib, color, pct);
+  }
+}
+
+void platform_gather_ip(platform_emit_info_cb emit_cb) {
+  if (!emit_cb) return;
+
+  if (g_sys_cache.ip_valid) {
+    for (int i = 0; i < g_sys_cache.ip_count; i++) {
+      emit_cb(g_sys_cache.ips[i].label, "%s", g_sys_cache.ips[i].val);
+    }
+    return;
+  }
+
+  g_sys_cache.ip_count = 0;
+
+  ULONG bufLen = 15000;
+  PIP_ADAPTER_ADDRESSES addrs = (PIP_ADAPTER_ADDRESSES)malloc(bufLen);
+  if (addrs) {
+    DWORD dwRet = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, NULL, addrs, &bufLen);
+    if (dwRet == ERROR_BUFFER_OVERFLOW) {
+      free(addrs);
+      addrs = (PIP_ADAPTER_ADDRESSES)malloc(bufLen);
+      if (addrs) {
+        dwRet = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, NULL, addrs, &bufLen);
+      }
+    }
+
+    if (addrs && dwRet == NO_ERROR) {
+      for (PIP_ADAPTER_ADDRESSES a = addrs; a && g_sys_cache.ip_count < MAX_CACHED_ITEMS; a = a->Next) {
+        if (a->OperStatus == IfOperStatusUp && a->IfType != IF_TYPE_SOFTWARE_LOOPBACK) {
+          for (PIP_ADAPTER_UNICAST_ADDRESS ua = a->FirstUnicastAddress; ua; ua = ua->Next) {
+            if (ua->Address.lpSockaddr && ua->Address.lpSockaddr->sa_family == AF_INET) {
+              struct sockaddr_in *sin = (struct sockaddr_in*)ua->Address.lpSockaddr;
+              char ip_str[INET_ADDRSTRLEN] = {0};
+              if (inet_ntop(AF_INET, &sin->sin_addr, ip_str, sizeof(ip_str))) {
+                char friendly[64] = {0};
+                utf16_to_utf8(a->FriendlyName, friendly, sizeof(friendly));
+                trim_and_normalize_spaces(friendly);
+
+                win_info_item_t *item = &g_sys_cache.ips[g_sys_cache.ip_count++];
+                strncpy(item->label, "IP", sizeof(item->label) - 1);
+                item->label[sizeof(item->label) - 1] = '\0';
+                if (friendly[0] != '\0') {
+                  snprintf(item->val, sizeof(item->val), "%s: %s/%u",
+                           friendly, ip_str, (unsigned int)ua->OnLinkPrefixLength);
+                } else {
+                  snprintf(item->val, sizeof(item->val), "%s/%u",
+                           ip_str, (unsigned int)ua->OnLinkPrefixLength);
+                }
+                emit_cb(item->label, "%s", item->val);
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+    free(addrs);
+  }
+
+  g_sys_cache.ip_valid = 1;
+}
+
+void platform_gather_battery(char *out_label, size_t labelsz, char *out_val, size_t valsz) {
+  if (out_label && labelsz > 0) out_label[0] = '\0';
+  if (out_val && valsz > 0) out_val[0] = '\0';
+
+  SYSTEM_POWER_STATUS sps;
+  if (!GetSystemPowerStatus(&sps) || sps.BatteryFlag == 128 || sps.BatteryLifePercent == 255) {
+    return;
+  }
+
+  if (out_label && labelsz > 0) {
+    snprintf(out_label, labelsz, "Battery");
+  }
+
+  int capacity = (int)sps.BatteryLifePercent;
+  const char *color = capacity >= 50 ? "32" : capacity >= 20 ? "93" : "31";
+
+  const char *status = "Discharging";
+  if (sps.BatteryFlag & 8) {
+    status = "Charging";
+  } else if (sps.ACLineStatus == 1) {
+    status = "AC Connected";
+  }
+
+  if (out_val && valsz > 0) {
+    if (sps.BatteryLifeTime != (DWORD)-1 && sps.BatteryLifeTime > 0) {
+      unsigned long h = sps.BatteryLifeTime / 3600UL;
+      unsigned long m = (sps.BatteryLifeTime % 3600UL) / 60UL;
+      snprintf(out_val, valsz, "\033[%sm%d%%\033[0m (%lu hours, %lu mins remaining) [%s]",
+               color, capacity, h, m, status);
+    } else {
+      snprintf(out_val, valsz, "\033[%sm%d%%\033[0m [%s]", color, capacity, status);
+    }
+  }
 }
 
 #ifdef FETCH_TESTING

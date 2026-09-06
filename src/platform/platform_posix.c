@@ -401,6 +401,39 @@ int platform_detect_os_id(char *out, size_t outsz) {
   return 0;
 }
 
+/* --- System Information Stubs (Full POSIX gather extraction is Phase 6+) --- */
+
+void platform_gather_title(char *out_user, size_t usersz, char *out_host, size_t hostsz) {
+  if (out_user && usersz > 0) out_user[0] = '\0';
+  if (out_host && hostsz > 0) out_host[0] = '\0';
+}
+void platform_gather_os(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_host(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_kernel(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_uptime(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_packages(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_shell(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_display(platform_emit_info_cb emit_cb) { (void)emit_cb; }
+void platform_gather_wm(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_displaymanager(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_theme(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_icons(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_font(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_cursor(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_terminal(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_cpu(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_gpu(platform_emit_info_cb emit_cb) { (void)emit_cb; }
+void platform_gather_memory(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_swap(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_disk(const char *path, char *out, size_t outsz) { (void)path; if (out && outsz > 0) out[0] = '\0'; }
+void platform_gather_ip(platform_emit_info_cb emit_cb) { (void)emit_cb; }
+void platform_gather_battery(char *out_label, size_t labelsz, char *out_val, size_t valsz) {
+  if (out_label && labelsz > 0) out_label[0] = '\0';
+  if (out_val && valsz > 0) out_val[0] = '\0';
+}
+void platform_gather_locale(char *out, size_t outsz) { if (out && outsz > 0) out[0] = '\0'; }
+void platform_invalidate_info_cache(void) {}
+
 #ifdef FETCH_TESTING
 /* --- Test Injections --- */
 

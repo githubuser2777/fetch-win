@@ -229,6 +229,9 @@ static void get_cmd_version(const char *bin, char *out, int outlen) {
 static void gather_title(void) {
   char user[64] = "";
   char host[64] = "";
+#ifdef _WIN32
+  platform_gather_title(user, sizeof(user), host, sizeof(host));
+#else
   char *login = getlogin();
   if (login)
     strncpy(user, login, sizeof(user) - 1);
@@ -238,6 +241,7 @@ static void gather_title(void) {
       strncpy(user, env, sizeof(user) - 1);
   }
   gethostname(host, sizeof(host));
+#endif
 
   char line[MAX_LINE_LEN];
   snprintf(line, sizeof(line), "\033[1;%sm%s\033[0m@\033[1;%sm%s\033[0m",
@@ -260,7 +264,12 @@ static void gather_title(void) {
 }
 
 static void gather_os(void) {
-#ifdef __APPLE__
+#ifdef _WIN32
+  char os[256] = "";
+  platform_gather_os(os, sizeof(os));
+  if (os[0])
+    add_info("OS", "%s", os);
+#elif defined(__APPLE__)
   char version[64] = "";
   if (sysctl_str("kern.osproductversion", version, sizeof(version))) {
     struct utsname u;
@@ -321,7 +330,12 @@ static int try_read_first_line(const char *path, char *out, int outlen) {
 }
 
 static void gather_host(void) {
-#ifdef __APPLE__
+#ifdef _WIN32
+  char host[256] = "";
+  platform_gather_host(host, sizeof(host));
+  if (host[0])
+    add_info("Host", "%s", host);
+#elif defined(__APPLE__)
   char model[128] = "";
   if (sysctl_str("hw.model", model, sizeof(model)))
     add_info("Host", "%s", model);
@@ -350,13 +364,26 @@ static void gather_host(void) {
 }
 
 static void gather_kernel(void) {
+#ifdef _WIN32
+  char kernel[128] = "";
+  platform_gather_kernel(kernel, sizeof(kernel));
+  if (kernel[0])
+    add_info("Kernel", "%s", kernel);
+#else
   struct utsname u;
   uname(&u);
   add_info("Kernel", "%s %s", u.sysname, u.release);
+#endif
 }
 
 static void gather_uptime(void) {
-#ifdef __APPLE__
+#ifdef _WIN32
+  char uptime[128] = "";
+  platform_gather_uptime(uptime, sizeof(uptime));
+  if (uptime[0])
+    add_info("Uptime", "%s", uptime);
+  return;
+#elif defined(__APPLE__)
   struct timeval bt;
   size_t len = sizeof(bt);
   if (sysctlbyname("kern.boottime", &bt, &len, NULL, 0) != 0)
@@ -370,7 +397,6 @@ static void gather_uptime(void) {
   if (fscanf(fp, "%lf", &secs) != 1)
     secs = 0;
   fclose(fp);
-#endif
 
   int total = (int)secs;
   int days = total / 86400;
@@ -389,6 +415,7 @@ static void gather_uptime(void) {
     snprintf(val, sizeof(val), "%d min%s", mins, mins == 1 ? "" : "s");
 
   add_info("Uptime", "%s", val);
+#endif
 }
 
 // Count subdirectories in a path (non-recursive)
@@ -604,6 +631,13 @@ static void gather_packages(void) {
 }
 
 static void gather_shell(void) {
+#ifdef _WIN32
+  char shell_win[128] = "";
+  platform_gather_shell(shell_win, sizeof(shell_win));
+  if (shell_win[0])
+    add_info("Shell", "%s", shell_win);
+  return;
+#endif
   char *shell = NULL;
   char shell_buf[64] = "";
 
@@ -852,7 +886,10 @@ static int connector_is_internal(const char *conn) {
 #endif
 
 static void gather_display(void) {
-#ifdef __APPLE__
+#ifdef _WIN32
+  platform_gather_display(add_info);
+  return;
+#elif defined(__APPLE__)
   FILE *fp = popen("system_profiler SPDisplaysDataType 2>/dev/null", "r");
   if (!fp) return;
   char buf[512];
@@ -1023,7 +1060,13 @@ static void gather_display(void) {
 }
 
 static void gather_wm(void) {
-#ifdef __APPLE__
+#ifdef _WIN32
+  char wm_win[64] = "";
+  platform_gather_wm(wm_win, sizeof(wm_win));
+  if (wm_win[0])
+    add_info("WM", "%s", wm_win);
+  return;
+#elif defined(__APPLE__)
   add_info("WM", "Aqua");
 #else
   // Check WAYLAND_DISPLAY or XDG_SESSION_TYPE to determine session type
@@ -1126,7 +1169,13 @@ static void gather_wm(void) {
 }
 
 static void gather_displaymanager(void) {
-#ifndef __APPLE__
+#ifdef _WIN32
+  char dm_win[64] = "";
+  platform_gather_displaymanager(dm_win, sizeof(dm_win));
+  if (dm_win[0])
+    add_info("Display Manager", "%s", dm_win);
+  return;
+#elif !defined(__APPLE__)
   static const char *known_dms[] = {"sddm",    "gdm",   "gdm3", "lightdm",
                                     "lxdm",    "greetd", "xdm",  "slim",
                                     "lemurs",  "ly",    NULL};
@@ -1184,7 +1233,13 @@ static void gather_displaymanager(void) {
 }
 
 static void gather_cpu(void) {
-#ifdef __APPLE__
+#ifdef _WIN32
+  char cpu_win[256] = "";
+  platform_gather_cpu(cpu_win, sizeof(cpu_win));
+  if (cpu_win[0])
+    add_info("CPU", "%s", cpu_win);
+  return;
+#elif defined(__APPLE__)
   char name[128] = "";
   if (sysctl_str("machdep.cpu.brand_string", name, sizeof(name))) {
     int cores = sysctl_int("hw.ncpu");
@@ -1408,7 +1463,10 @@ static int amd_name_is_igpu(const char *name) {
 #endif
 
 static void gather_gpu(void) {
-#ifdef __APPLE__
+#ifdef _WIN32
+  platform_gather_gpu(add_info);
+  return;
+#elif defined(__APPLE__)
   FILE *fp = popen("system_profiler SPDisplaysDataType 2>/dev/null", "r");
   if (!fp) return;
   char buf[512];
@@ -1543,7 +1601,13 @@ static void gather_gpu(void) {
 }
 
 static void gather_memory(void) {
-#ifdef __APPLE__
+#ifdef _WIN32
+  char mem_win[256] = "";
+  platform_gather_memory(mem_win, sizeof(mem_win));
+  if (mem_win[0])
+    add_info("Memory", "%s", mem_win);
+  return;
+#elif defined(__APPLE__)
   long long total = sysctl_long("hw.memsize");
   if (total <= 0) return;
 
@@ -1599,7 +1663,13 @@ static void gather_memory(void) {
 }
 
 static void gather_swap(void) {
-#ifdef __APPLE__
+#ifdef _WIN32
+  char swap_win[256] = "";
+  platform_gather_swap(swap_win, sizeof(swap_win));
+  if (swap_win[0])
+    add_info("Swap", "%s", swap_win);
+  return;
+#elif defined(__APPLE__)
   char swapstr[256] = "";
   if (!sysctl_str("vm.swapusage", swapstr, sizeof(swapstr)))
     return;
@@ -1640,6 +1710,17 @@ static void gather_swap(void) {
 }
 
 static void gather_disk_one(const char *path) {
+#ifdef _WIN32
+  char disk_win[256] = "";
+  platform_gather_disk(path, disk_win, sizeof(disk_win));
+  if (disk_win[0]) {
+    char label[64];
+    const char *display_path = (path && strcmp(path, "/") != 0) ? path : "C:";
+    snprintf(label, sizeof(label), "Disk (%s)", display_path);
+    add_info(label, "%s", disk_win);
+  }
+  return;
+#else
   struct statvfs st;
   if (statvfs(path, &st) != 0)
     return;
@@ -1688,6 +1769,7 @@ static void gather_disk_one(const char *path) {
   else
     add_info(label, "%.2f GiB / %.2f GiB (\033[%sm%d%%\033[0m)", used_gib,
              total_gib, color, pct);
+#endif
 }
 
 static void gather_disk(void) {
@@ -1697,7 +1779,14 @@ static void gather_disk(void) {
 }
 
 static void gather_battery(void) {
-#if defined(__APPLE__) && !defined(LEGACY_IOKIT)
+#ifdef _WIN32
+  char label_win[80] = "";
+  char val_win[256] = "";
+  platform_gather_battery(label_win, sizeof(label_win), val_win, sizeof(val_win));
+  if (label_win[0] && val_win[0])
+    add_info(label_win, "%s", val_win);
+  return;
+#elif defined(__APPLE__) && !defined(LEGACY_IOKIT)
   CFTypeRef info = IOPSCopyPowerSourcesInfo();
   if (!info) return;
   CFArrayRef sources = IOPSCopyPowerSourcesList(info);
@@ -1907,6 +1996,13 @@ static void gather_battery(void) {
 }
 
 static void gather_terminal(void) {
+#ifdef _WIN32
+  char term_win[128] = "";
+  platform_gather_terminal(term_win, sizeof(term_win));
+  if (term_win[0])
+    add_info("Terminal", "%s", term_win);
+  return;
+#endif
   char term[64] = "";
   // Try TERM_PROGRAM first, then walk up the process tree
   char *tp = getenv("TERM_PROGRAM");
@@ -2101,6 +2197,10 @@ static int get_default_route_iface(char *out, int outlen) {
 }
 
 static void gather_ip(void) {
+#ifdef _WIN32
+  platform_gather_ip(add_info);
+  return;
+#else
   char default_iface[64] = "";
   get_default_route_iface(default_iface, sizeof(default_iface));
 
@@ -2159,12 +2259,21 @@ static void gather_ip(void) {
       add_info(lbl, "%s", entries[i].addr);
     }
   }
+#endif
 }
 
 static void gather_locale(void) {
+#ifdef _WIN32
+  char loc_win[64] = "";
+  platform_gather_locale(loc_win, sizeof(loc_win));
+  if (loc_win[0])
+    add_info("Locale", "%s", loc_win);
+  return;
+#else
   char *lang = getenv("LANG");
   if (lang && lang[0])
     add_info("Locale", "%s", lang);
+#endif
 }
 
 static int read_ini_key(const char *path, const char *section, const char *key,
@@ -2340,7 +2449,13 @@ static void append_gtk_pair(char *dst, size_t dstsz, const char *gtk2,
 }
 
 static void gather_theme(void) {
-#ifdef __APPLE__
+#ifdef _WIN32
+  char theme_win[64] = "";
+  platform_gather_theme(theme_win, sizeof(theme_win));
+  if (theme_win[0])
+    add_info("Theme", "%s", theme_win);
+  return;
+#elif defined(__APPLE__)
   char style[64] = "";
   FILE *fp = popen("defaults read -g AppleInterfaceStyle 2>/dev/null", "r");
   if (fp) {
@@ -2367,7 +2482,13 @@ static void gather_theme(void) {
 }
 
 static void gather_icons(void) {
-#ifdef __APPLE__
+#ifdef _WIN32
+  char icons_win[64] = "";
+  platform_gather_icons(icons_win, sizeof(icons_win));
+  if (icons_win[0])
+    add_info("Icons", "%s", icons_win);
+  return;
+#elif defined(__APPLE__)
   add_info("Icons", "System");
 #else
   char qt[64] = "", gtk2[64] = "", gtk3[64] = "", out[256] = "";
@@ -2382,7 +2503,13 @@ static void gather_icons(void) {
 }
 
 static void gather_font(void) {
-#ifdef __APPLE__
+#ifdef _WIN32
+  char font_win[128] = "";
+  platform_gather_font(font_win, sizeof(font_win));
+  if (font_win[0])
+    add_info("Font", "%s", font_win);
+  return;
+#elif defined(__APPLE__)
   char font[128] = "";
   FILE *fp = popen("defaults read NSGlobalDomain AppleFont 2>/dev/null", "r");
   if (fp) {
@@ -2409,7 +2536,13 @@ static void gather_font(void) {
 }
 
 static void gather_cursor(void) {
-#ifndef __APPLE__
+#ifdef _WIN32
+  char cursor_win[64] = "";
+  platform_gather_cursor(cursor_win, sizeof(cursor_win));
+  if (cursor_win[0])
+    add_info("Cursor", "%s", cursor_win);
+  return;
+#elif !defined(__APPLE__)
   char cursor[64] = "";
   read_gtk_setting("gtk-cursor-theme-name", cursor, sizeof(cursor));
   if (cursor[0]) {

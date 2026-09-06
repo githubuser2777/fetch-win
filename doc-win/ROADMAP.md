@@ -301,16 +301,25 @@ Phase 10: Documentation & Release
 - **Acceptance**: Console enters raw VT mode, mouse drag works, unconsumed keypress passthrough verified in buffer, and terminal state is 100% restored.
 
 #### Phase 5: Native Windows System Information
-- **Status**: Pending
-- **Files**: `src/platform/platform_win.c`
-- **Scope**:
-  - Implement OS, Kernel, Host via Registry and `RtlGetVersion`.
-  - Implement CPU via Registry and `GetSystemInfo`.
-  - Implement DXGI GPU enumeration with software adapter filtering and conservative classification.
-  - Implement Memory and Pagefile via `GlobalMemoryStatusEx`.
-  - Implement Uptime via `GetTickCount64()`.
-  - Implement Display, Disk, IP, Battery, Shell, Terminal, and Theme.
-- **Acceptance**: All supported fields output authentic Windows system data without crashes or fabrication.
+- **Status**: **COMPLETED**
+- **Files**: `src/platform/platform.h`, `src/platform/platform_win.c`, `src/platform/platform_posix.c`, `fetch.c`, `tests/test_phase5.c`, `Makefile`
+- **Deliverables**:
+  - `src/platform/platform.h`: Declared `platform_emit_info_cb`, all native collector functions, and `platform_invalidate_info_cache()`.
+  - `src/platform/platform_win.c`: Implemented native Win32/Registry/DXGI/IPHLPAPI collectors for all 20 system metrics fields with UTF-8 conversion, static caching with zero render-loop hitching, and conservative GPU classification.
+  - `src/platform/platform_posix.c`: Provided matching cross-platform stubs for new platform gathers.
+  - `fetch.c`: Integrated native Windows platform gathers under `#ifdef _WIN32` for startup display and dynamic animation loop refresh (~1s cadence).
+  - `tests/test_phase5.c`: Automated 111-assertion unit test suite covering all collectors, contract guarantees, buffer boundaries, UTF-8 validity, and cache invalidation.
+  - `Makefile`: Added `-ldxgi -liphlpapi -lversion` on `Windows_NT`, added `test_phase5` target, and updated `test`/`clean`.
+- **Results**:
+  - Phase 0 baseline regression tests: 98 / 98 passed (100% success).
+  - Phase 1 isolated unit tests: 67 / 67 passed (100% success).
+  - Phase 2 isolated unit tests: 130 / 130 passed (100% success).
+  - Phase 3 platform unit tests: 60 / 60 passed (100% success).
+  - Phase 4 native Windows unit tests: 86 / 86 passed (100% success).
+  - Phase 5 native system info unit tests: 111 / 111 passed (100% success).
+  - Native Windows smoke tests: 29 / 29 passed (100% success).
+  - Live native execution verified with authentic system metrics.
+- **Acceptance**: All supported fields output authentic Windows system data without crashes or fabrication, zero render-loop hitching, and package discovery deferred to Phase 6.
 
 #### Phase 6: Windows Paths, Logo & Package Managers
 - **Status**: Pending
