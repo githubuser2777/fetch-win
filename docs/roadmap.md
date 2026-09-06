@@ -205,7 +205,7 @@ Phase 2: Config & Logo Extraction (COMPLETED)
 Phase 3: Platform Abstraction + POSIX Backend (COMPLETED)
    │
    ▼
-Phase 4: Windows Terminal Backend (State & Input)
+Phase 4: Windows Terminal Backend (COMPLETED)
    │
    ▼
 Phase 5: Windows System Information Backend
@@ -284,14 +284,22 @@ Phase 10: Documentation & Release
 - **Acceptance**: Terminal lifecycle, signal safety, keypress passthrough, and animation behaviors match Phase 0 baseline with zero regression.
 
 #### Phase 4: Native Windows Terminal Backend
-- **Status**: Pending
-- **Files**: `src/platform/platform_win.c`
-- **Scope**:
-  - Implement console state save and restore (`orig_in_mode`, `orig_out_mode`, `orig_cp`, cursor).
-  - Enable UTF-8 code page and `ENABLE_VIRTUAL_TERMINAL_PROCESSING`.
-  - Implement `platform_write_output()` via `WriteFile()`.
-  - Implement atomic interrupt handling and input polling (`PeekConsoleInputA`).
-- **Acceptance**: Windows console enters raw VT mode, mouse drag works, keypress exits cleanly, terminal state is 100% restored.
+- **Status**: **COMPLETED** (Commit [`2fa7eae`](https://github.com/githubuser2777/fetch-win/commit/2fa7eae))
+- **Files**: `src/platform/platform_win.c`, `tests/test_phase4.c`, `tests/smoke_win.c`, `Makefile`
+- **Deliverables**:
+  - `src/platform/platform_win.c`: Native Win32 terminal backend implementing encapsulated state (`win_console_state_t`), UTF-8 code page switching, `ENABLE_VIRTUAL_TERMINAL_PROCESSING` VT output, `WriteFile()` output, `Sleep()` frame timing, atomic `SetConsoleCtrlHandler` for Ctrl+C/break signals, non-destructive `PeekConsoleInputA` keypress passthrough, native Win32 mouse drag/release delta tracking, window resize detection, and idempotent cleanup.
+  - `tests/test_phase4.c`: 86 automated assertions testing terminal lifecycle idempotency, mode/codepage restoration, sizing, resize state machine, Ctrl+C interruption, unconsumed keypress passthrough, Win32 mouse drag deltas, SGR escape parser, and path resolution.
+  - `tests/smoke_win.c`: 20 automated smoke tests validating `--help`, `--version`, animation, resize, Ctrl+C, keyboard passthrough, and mouse drag.
+  - `Makefile`: Updated to build native Windows backend via `src/platform/platform_win.c`, added `test_phase4` and `smoke` targets, and removed `platform_stub.c`.
+- **Results**:
+  - Phase 0 baseline regression tests: 98 / 98 passed (100% success).
+  - Phase 1 isolated unit tests: 67 / 67 passed (100% success).
+  - Phase 2 isolated unit tests: 130 / 130 passed (100% success).
+  - Phase 3 platform unit tests: 60 / 60 passed (100% success).
+  - Phase 4 native Windows unit tests: 86 / 86 passed (100% success).
+  - Native Windows smoke tests: 20 / 20 passed (100% success).
+  - Clean native build of `fetch.exe` and CLI smoke test verification on Windows with MinGW-w64.
+- **Acceptance**: Console enters raw VT mode, mouse drag works, unconsumed keypress passthrough verified in buffer, and terminal state is 100% restored.
 
 #### Phase 5: Native Windows System Information
 - **Status**: Pending
