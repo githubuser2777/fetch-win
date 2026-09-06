@@ -14,9 +14,8 @@ ifeq ($(OS),Windows_NT)
   EXE_EXT = .exe
   RUN_PREFIX =
   RM = cmd /c del /f /q 2>nul
-  # Phase 3: platform_win.c is not yet implemented (deferred to Phase 4).
-  # Use temporary platform stub to avoid compiling POSIX code on Windows.
-  PLATFORM_SRC = src/platform/platform_stub.c
+  # Phase 4: Native Windows terminal backend
+  PLATFORM_SRC = src/platform/platform_win.c
 else
   VERSION := $(shell cat VERSION 2>/dev/null || echo 0.1.0)
   EXE_EXT =
@@ -51,13 +50,17 @@ install: fetch
 	install -m 755 fetch $(DESTDIR)$(PREFIX)/bin/fetch
 
 clean:
-	-$(RM) fetch fetch.exe test_baseline test_baseline.exe test_phase1 test_phase1.exe test_phase2 test_phase2.exe test_phase3 test_phase3.exe
+	-$(RM) fetch fetch.exe test_baseline test_baseline.exe test_phase1 test_phase1.exe test_phase2 test_phase2.exe test_phase3 test_phase3.exe test_phase4 test_phase4.exe smoke_win smoke_win.exe
 
-test: test_baseline$(EXE_EXT) test_phase1$(EXE_EXT) test_phase2$(EXE_EXT) test_phase3$(EXE_EXT)
+test: test_baseline$(EXE_EXT) test_phase1$(EXE_EXT) test_phase2$(EXE_EXT) test_phase3$(EXE_EXT) test_phase4$(EXE_EXT)
 	$(RUN_PREFIX)test_baseline$(EXE_EXT)
 	$(RUN_PREFIX)test_phase1$(EXE_EXT)
 	$(RUN_PREFIX)test_phase2$(EXE_EXT)
 	$(RUN_PREFIX)test_phase3$(EXE_EXT)
+	$(RUN_PREFIX)test_phase4$(EXE_EXT)
+
+smoke: fetch smoke_win$(EXE_EXT)
+	$(RUN_PREFIX)smoke_win$(EXE_EXT)
 
 test_baseline$(EXE_EXT): tests/test_baseline.c $(SRCS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_VERSION='"$(VERSION)"' -DFETCH_CODENAME='"$(CODENAME)"' -DFETCH_ARCH='"$(UNAME_M)"' -DFETCH_OS='"$(UNAME_S)"' -I. -I tests/include tests/test_baseline.c src/core/common.c src/renderer/renderer.c src/config/config.c src/logo/logo.c $(PLATFORM_SRC) -o $@ $(LDLIBS)
@@ -71,4 +74,10 @@ test_phase2$(EXE_EXT): tests/test_phase2.c src/core/common.c src/renderer/render
 test_phase3$(EXE_EXT): tests/test_phase3.c src/platform/platform_posix.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_TESTING -I. tests/test_phase3.c src/platform/platform_posix.c -o $@ $(LDLIBS)
 
-.PHONY: install clean test
+test_phase4$(EXE_EXT): tests/test_phase4.c src/platform/platform_win.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_TESTING -I. tests/test_phase4.c src/platform/platform_win.c -o $@ $(LDLIBS)
+
+smoke_win$(EXE_EXT): tests/smoke_win.c src/platform/platform_win.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -DFETCH_TESTING -I. tests/smoke_win.c src/platform/platform_win.c -o $@ $(LDLIBS)
+
+.PHONY: install clean test smoke
