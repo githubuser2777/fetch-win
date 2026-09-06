@@ -208,7 +208,7 @@ Phase 3: Platform Abstraction + POSIX Backend (COMPLETED)
 Phase 4: Windows Terminal Backend (COMPLETED)
    │
    ▼
-Phase 5: Windows System Information Backend
+Phase 5: Windows System Information Backend (COMPLETED)
    │
    ▼
 Phase 6: Windows Paths, Logo & Packages
@@ -302,16 +302,41 @@ Phase 10: Documentation & Release
 - **Acceptance**: Console enters raw VT mode, mouse drag works, unconsumed keypress passthrough verified in buffer, and terminal state is 100% restored.
 
 #### Phase 5: Native Windows System Information
-- **Status**: Pending
-- **Files**: `src/platform/platform_win.c`
-- **Scope**:
-  - Implement OS, Kernel, Host via Registry and `RtlGetVersion`.
-  - Implement CPU via Registry and `GetSystemInfo`.
-  - Implement DXGI GPU enumeration with software adapter filtering and conservative classification.
-  - Implement Memory and Pagefile via `GlobalMemoryStatusEx`.
-  - Implement Uptime via `GetTickCount64()`.
-  - Implement Display, Disk, IP, Battery, Shell, Terminal, and Theme.
-- **Acceptance**: All supported fields output authentic Windows system data without crashes or fabrication.
+- **Status**: **COMPLETED** (Commits [`a0e161d`](https://github.com/githubuser2777/fetch-win/commit/a0e161d), [`ddb3220`](https://github.com/githubuser2777/fetch-win/commit/ddb3220))
+- **Files**: `src/platform/platform.h`, `src/platform/platform_win.c`, `src/platform/platform_posix.c`, `src/fetch.c`, `tests/test_phase5.c`, `tests/smoke_win.c`, `Makefile`
+- **Deliverables**:
+  - `src/platform/platform.h`: Formalized system information collectors and `platform_emit_info_cb` callback for multi-item fields; added cache verification test hooks guarded by `FETCH_TESTING`.
+  - `src/platform/platform_win.c`: Implemented native Win32/DXGI/IPHLPAPI/Registry collectors:
+    - **OS & Kernel**: `RtlGetVersion` via `ntdll.dll`, Registry `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` (`DisplayVersion`, `UBR`, `CurrentBuildNumber`), and `GetNativeSystemInfo`.
+    - **Host & Title**: `GetUserNameW`, `GetComputerNameExW`, Registry BIOS (`SystemManufacturer`, `SystemProductName` with manufacturer deduplication).
+    - **CPU**: Registry `CentralProcessor\0` (`ProcessorNameString`, `~MHz`), `GetNativeSystemInfo`.
+    - **GPU**: DXGI 1.1 `EnumAdapters1`, software WARP filter (`DXGI_ADAPTER_FLAG_SOFTWARE`), display output preference (`EnumOutputs`), conservative `[Discrete]`/`[Integrated]` tagging with tag omission when uncertain.
+    - **Memory & Swap**: `GlobalMemoryStatusEx` (`ullTotalPhys`, `ullAvailPhys`, committed pagefile).
+    - **Disk**: `GetLogicalDriveStringsW`, `GetDiskFreeSpaceExW`, `GetVolumeInformationW`.
+    - **Battery**: `GetSystemPowerStatus`, AC line status, charging/discharging states, desktop fallback.
+    - **IP / Network**: `GetAdaptersAddresses` (`iphlpapi.h`), active non-loopback interface friendly name, IPv4 + CIDR prefix.
+    - **Shell & Terminal**: Toolhelp32 snapshot parent process walk (`pwsh.exe`, `powershell.exe`, `cmd.exe`, etc.), `WT_SESSION`, `TERM_PROGRAM`, `conhost.exe`.
+    - **Display**: `EnumDisplayDevicesW`, `EnumDisplaySettingsExW` (`ENUM_CURRENT_SETTINGS`).
+    - **WM & DM**: Process snapshot scan for tiling WMs (`glazewm.exe`, `komorebi.exe`), fallback to `DWM`. DM omitted (`N/A`).
+    - **Theme, Icons, Font, Cursor, Locale**: `AppsUseLightTheme`, `GetCurrentConsoleFontEx`, Registry cursor scheme, `GetUserDefaultLocaleName`.
+    - **Static System-Info Caching**: Extensible `g_sys_cache` avoids redundant registry/DXGI/display/process queries for all 15 static collectors; `platform_invalidate_info_cache()` resets cache.
+    - **Package Discovery Stub**: Forward-compatible stub declaration for Phase 6.
+  - `src/platform/platform_posix.c`: Cross-platform stubs for all new platform signatures to maintain POSIX builds.
+  - `src/fetch.c`: Integrated native Windows collectors; wired periodic dynamic refresh at ~1s cadence (`frame > 0 && frame % 20 == 0`) for uptime, memory, and swap without re-running static collectors or altering layout.
+  - `tests/test_phase5.c`: 278 automated unit assertions across 18 sections validating contracts, fallbacks, safety, UTF-8 conversions, static caching, dynamic non-caching, and refresh cadence.
+  - `tests/smoke_win.c`: Expanded to 40 smoke tests across 11 sections (including dynamic in-animation refresh across frame 20 and authentic Windows system stats).
+  - `Makefile`: Added `-ldxgi -liphlpapi -lversion -lws2_32` dependencies and `test_phase5` target.
+- **Results**:
+  - Phase 0 baseline regression tests: 98 / 98 passed (100% success).
+  - Phase 1 isolated unit tests: 67 / 67 passed (100% success).
+  - Phase 2 isolated unit tests: 130 / 130 passed (100% success).
+  - Phase 3 platform unit tests: 60 / 60 passed (100% success).
+  - Phase 4 native Windows unit tests: 98 / 98 passed (100% success).
+  - Phase 5 system information unit tests: 278 / 278 passed (100% success).
+  - Total unit tests: 731 / 731 passed (100% success).
+  - Native Windows smoke tests: 40 / 40 passed (100% success).
+  - Clean native execution of `fetch.exe` displaying authentic Windows metrics and dynamic in-animation refresh at ~1s cadence.
+- **Acceptance**: All system information fields output authentic Windows metrics with zero fabrication; dynamic counters refresh in-place during animation without render hitching or static collector re-execution.
 
 #### Phase 6: Windows Paths, Logo & Package Managers
 - **Status**: Pending
