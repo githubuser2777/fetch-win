@@ -3,7 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 /*
  * Temporary platform stub for native Windows builds in Phase 3.
@@ -13,11 +17,18 @@
 
 int platform_terminal_init(platform_term_caps_t *caps) {
   if (caps) {
-    int stdout_tty = isatty(fileno(stdout));
-    int stdin_tty = isatty(fileno(stdin));
-    caps->is_tty = stdout_tty && stdin_tty;
-    caps->supports_vt = caps->is_tty;
+#ifdef _WIN32
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD mode = 0;
+    int is_tty = (hOut != INVALID_HANDLE_VALUE && hOut != NULL && GetConsoleMode(hOut, &mode));
+    caps->is_tty = is_tty;
+    caps->supports_vt = is_tty;
     caps->supports_mouse = 0;
+#else
+    caps->is_tty = 1;
+    caps->supports_vt = 1;
+    caps->supports_mouse = 0;
+#endif
   }
   return 0;
 }
@@ -36,7 +47,12 @@ int platform_check_resize(void) {
 }
 
 void platform_sleep_frame(unsigned int usec) {
-  usleep(usec);
+#ifdef _WIN32
+  /* Win32 Sleep() takes milliseconds */
+  Sleep((DWORD)((usec + 999) / 1000));
+#else
+  (void)usec;
+#endif
 }
 
 int platform_write_output(const char *buf, size_t len) {
