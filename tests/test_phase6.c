@@ -214,8 +214,20 @@ static void test_windows_logo(void) {
     /* 3.1 Load built-in Windows logo */
     int ok = logo_load_builtin(&logo, "windows");
     TEST_ASSERT(ok == 1, "logo_load_builtin('windows') returns 1");
-    TEST_ASSERT(logo.rows > 0, "Built-in Windows logo has non-zero rows");
+    TEST_ASSERT(logo.rows == 17, "Built-in Windows logo has 17 rows (8 upper + 1 divider + 8 lower)");
     TEST_ASSERT(strcmp(logo.distro, "windows") == 0, "Logo distro identifier set to 'windows'");
+
+    /* Structural checks for modern 4-pane layout: upper panes, divider, lower panes */
+    TEST_ASSERT(strstr(logo.data[0], "//") != NULL && strstr(logo.data[0], "  ") != NULL,
+                "Row 0 contains dual pane blocks separated by gap");
+    TEST_ASSERT(strstr(logo.data[7], "//") != NULL && strstr(logo.data[7], "  ") != NULL,
+                "Row 7 contains dual pane blocks separated by gap");
+    TEST_ASSERT(logo.data[8][0] == '\0',
+                "Row 8 is blank horizontal divider row between panes");
+    TEST_ASSERT(strstr(logo.data[9], "//") != NULL && strstr(logo.data[9], "  ") != NULL,
+                "Row 9 contains dual pane blocks separated by gap");
+    TEST_ASSERT(strstr(logo.data[16], "//") != NULL && strstr(logo.data[16], "  ") != NULL,
+                "Row 16 contains dual pane blocks separated by gap");
 
     /* 3.2 Logo aliases: win, win11, win10 */
     fetch_logo_t logo_win, logo_win11, logo_win10;
@@ -227,8 +239,19 @@ static void test_windows_logo(void) {
     TEST_ASSERT(logo_load_builtin(&logo_win11, "win11") == 1, "Alias 'win11' loads built-in Windows logo");
     TEST_ASSERT(logo_load_builtin(&logo_win10, "win10") == 1, "Alias 'win10' loads built-in Windows logo");
 
+    TEST_ASSERT(strcmp(logo_win.distro, "windows") == 0, "'win' sets distro to 'windows'");
+    TEST_ASSERT(strcmp(logo_win10.distro, "windows") == 0, "'win10' sets distro to 'windows'");
+    TEST_ASSERT(strcmp(logo_win11.distro, "windows") == 0, "'win11' sets distro to 'windows'");
+
     TEST_ASSERT(logo_win.rows == logo.rows, "'win' has same row count as 'windows'");
+    TEST_ASSERT(logo_win10.rows == logo.rows, "'win10' has same row count as 'windows'");
     TEST_ASSERT(logo_win11.rows == logo.rows, "'win11' has same row count as 'windows'");
+
+    /* Verify all aliases produce identical modern 4-pane content */
+    TEST_ASSERT(strcmp(logo_win.data[0], logo.data[0]) == 0 &&
+                strcmp(logo_win10.data[0], logo.data[0]) == 0 &&
+                strcmp(logo_win11.data[0], logo.data[0]) == 0,
+                "All aliases produce identical modern 4-pane logo content");
 
     /* 3.3 Unrelated logo name does NOT silently fallback to windows */
     fetch_logo_t logo_fake;
@@ -244,8 +267,24 @@ static void test_windows_logo(void) {
     TEST_ASSERT(inner != NULL && strstr(inner, "37m") != NULL, "Windows inner color is bold white (37m)");
 
     outer = NULL; inner = NULL;
+    logo_set_distro_colors("win", &outer, &inner);
+    TEST_ASSERT(outer != NULL && strstr(outer, "36m") != NULL, "Alias 'win' resolves same cyan color");
+
+    outer = NULL; inner = NULL;
+    logo_set_distro_colors("win10", &outer, &inner);
+    TEST_ASSERT(outer != NULL && strstr(outer, "36m") != NULL, "Alias 'win10' resolves same cyan color");
+
+    outer = NULL; inner = NULL;
     logo_set_distro_colors("win11", &outer, &inner);
     TEST_ASSERT(outer != NULL && strstr(outer, "36m") != NULL, "Alias 'win11' resolves same cyan color");
+
+    /* 3.5 Fastfetch Defense-in-Depth */
+    fetch_logo_t logo_ff;
+    logo_init(&logo_ff);
+    if (logo_load_fastfetch(&logo_ff, "windows")) {
+        TEST_ASSERT(strstr(logo_ff.data[0], "//") != NULL, "Fastfetch 'windows' resolves to modern 4-pane logo (mapped to win10)");
+        TEST_ASSERT(strstr(logo_ff.data[0], "@Ee") == NULL, "Fastfetch 'windows' does NOT load legacy Windows 7 logo");
+    }
 }
 
 /* ------------------------------------------------------------- */
