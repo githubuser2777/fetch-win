@@ -7,234 +7,289 @@ A donut.c-inspired fetch tool that spins your distro logo in 3D with live-updati
 Takes any ASCII/Unicode distro logo, turns each character into a point cloud
 based on its visual density, and renders it as a rotating 3D relief with
 Blinn-Phong shading. System info is gathered natively with no external
-dependencies. Works natively on Windows, Linux, and macOS.
+dependencies.
 
 Based on [gentoo.c](https://github.com/areofyl/gentoo.c).
 
-## Build & run
+---
 
-### CMake (Recommended)
+## Recommended Windows Usage Flow
 
-```sh
+```text
+Clone repository
+      ↓
+Build with CMake
+      ↓
+Run fetch.exe
+      ↓
+(Optional) put fetch.exe in a directory on PATH
+      ↓
+fetch
+      ↓
+(Optional) customize:
+%APPDATA%\fetch\config
+%APPDATA%\fetch\logo.txt
+```
+
+---
+
+## Build
+
+### Windows
+
+#### Verified Local Toolchain
+- **OS**: Windows 11 x86_64 (VERIFIED)
+- **Compiler**: MinGW-w64 (VERIFIED)
+- **Build System**: CMake (VERIFIED)
+
+#### CMake (Recommended)
+
+Generate the build configuration and compile:
+
+```powershell
 cmake -S . -B build
 cmake --build build
 ```
 
-Run the binary:
-- Windows: `.\build\fetch.exe`
-- Linux / macOS: `./build/fetch`
+For a Release configuration:
 
-Run the test suite:
-```sh
+```powershell
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
+
+The compiled binary is generated at:
+
+```powershell
+.\build\fetch.exe
+```
+
+Run the test suite with CTest:
+
+```powershell
 ctest --test-dir build --output-on-failure
 ```
 
-Build without tests:
-```sh
+To build without tests:
+
+```powershell
 cmake -S . -B build -DBUILD_TESTING=OFF
 cmake --build build
 ```
 
-### Makefile
+#### Makefile (Alternative)
+
+Build using `mingw32-make`:
+
+```powershell
+mingw32-make
+.\fetch.exe
+```
+
+Run tests with `mingw32-make`:
+
+```powershell
+mingw32-make test
+mingw32-make smoke
+```
+
+---
+
+### POSIX (Linux / macOS)
+
+Build with CMake:
 
 ```sh
-make              # On Windows with MinGW: mingw32-make
-./fetch           # On Windows: .\fetch.exe
+cmake -S . -B build
+cmake --build build
+./build/fetch
 ```
 
-Run tests with Makefile:
+Build with Makefile:
+
 ```sh
-make test         # On Windows: mingw32-make test
-make smoke        # Native Windows smoke suite: mingw32-make smoke
+make
+./fetch
 ```
 
-Press any key to stop. The keypress passes through to the shell, so it
-works as a startup fetch. Ctrl-C works too (but is less cool). Click and
-drag the logo to rotate it by hand, release to fling it spinning.
+*(Note: The POSIX platform backend and build targets are implemented, but native Linux/macOS execution is UNVERIFIED on the current development host).*
 
-## Install
+---
 
-```
-sudo make install
-```
+## Running `fetch`
 
-`PREFIX=~/.local make install` if you don't want it system-wide.
+### Direct Execution
 
-<details>
-<summary><h2>Package managers</h2></summary>
+Run `fetch` directly from the build directory:
 
-### Arch Linux (AUR)
-Maintainer: [@PlayRood32](https://github.com/PlayRood32)
-
-You can install `fetch-git` from the AUR using your favorite AUR helper:
-
-```bash
-yay -S fetch-git
-```
-or
-```bash
-paru -S fetch-git
+```powershell
+.\build\fetch.exe
 ```
 
-*The `fetch-git` AUR package was not compromised in the AUR package hack. It is maintained and up to date.*
+Common command-line invocations:
 
-### Nix
-Maintainer: [@Ghastrum](https://github.com/Ghastrum)
-
-Fetch is available in **[nixpkgs unstable](https://search.nixos.org/packages?channel=unstable&query=fetch#show=fetch)**, or as a [flake](https://github.com/areofyl/fetch/tree/main/nix).
-
-**Try out fetch!**
-```
-nix-shell -p fetch
+```powershell
+fetch --help
+fetch --version
+fetch --frames 5
+fetch --no-info --frames 1
 ```
 
-Add to your ```configuration.nix``` or ```home.nix```.
+Interaction controls:
+- **Exit**: Press any key to stop. The keypress passes through to the calling shell so you can continue typing immediately. `Ctrl-C` also exits cleanly.
+- **Rotate**: Click and drag the logo with the mouse to manually rotate it in 3D; release the mouse button to fling it spinning with momentum.
 
-```nix
-environment.systemPackages = [
-  ...
-  pkgs.fetch
-  ...
-];
+---
+
+## Running `fetch` From Anywhere
+
+To run:
+
+```powershell
+fetch
 ```
 
-### Homebrew (macOS)
-Maintainer: [@areofyl](https://github.com/areofyl)
+from any PowerShell, CMD, or Windows Terminal session without prefixing the path, place `fetch.exe` in a directory of your choice and add that directory to your user `PATH`.
 
-```bash
-brew tap areofyl/fetch
-brew install fetch-git
+### 1. Place `fetch.exe` in a Directory
+
+Example directory structure:
+
+```text
+C:\Tools\fetch
+└── fetch.exe
 ```
 
-### Fedora Linux
-Maintainer: [@RealOrangeKun](https://github.com/RealOrangeKun)
+### 2. Add Directory to User PATH via PowerShell
 
-You can install `fetch` from COPR:
+Use this safe PowerShell snippet to append the directory to your **User PATH** without overwriting existing entries:
 
-```bash
-sudo dnf copr enable realorangekun/fetch
-sudo dnf install fetch
+```powershell
+$fetchDir = "C:\Tools\fetch"
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ([string]::IsNullOrWhiteSpace($userPath)) {
+    [Environment]::SetEnvironmentVariable("Path", $fetchDir, "User")
+} elseif (($userPath -split ';') -notcontains $fetchDir) {
+    [Environment]::SetEnvironmentVariable("Path", "$userPath;$fetchDir", "User")
+}
 ```
 
-Or build an RPM package locally:
+This ensures that existing User and System PATH entries are completely preserved, and `$fetchDir` is only appended if it is not already present.
 
-```bash
-sudo dnf install @development-tools
-rpmbuild -ba fetch.spec
-sudo dnf install ~/rpmbuild/RPMS/*/fetch-*.rpm
+> **Note**: A new terminal session may be required after changing `PATH` for the updated environment variables to load.
+
+### 3. Verify PATH Setup
+
+Verify that the executable is discovered:
+
+```powershell
+where.exe fetch
 ```
 
-### openSUSE
-Maintainer: [@RealOrangeKun](https://github.com/RealOrangeKun)
+or in PowerShell:
 
-You can install `fetch` from the Open Build Service:
-
-```bash
-sudo zypper addrepo https://download.opensuse.org/repositories/home:RealOrangeKun/openSUSE_Tumbleweed/home:RealOrangeKun.repo
-sudo zypper refresh
-sudo zypper install fetch
+```powershell
+Get-Command fetch
 ```
 
-Or build an RPM package locally:
+Once verified, simply type:
 
-```bash
-sudo zypper install -t pattern devel_basis
-rpmbuild -ba fetch.spec
-sudo zypper install ~/rpmbuild/RPMS/*/fetch-*.rpm
+```powershell
+fetch
 ```
 
-### Ubuntu / Debian
-Maintainer: [@RealOrangeKun](https://github.com/RealOrangeKun)
+from any working directory.
 
-You can install `fetch` from the PPA:
+---
 
-```bash
-sudo add-apt-repository ppa:realorangekun/fetch
-sudo apt update
-sudo apt install fetch
+## Windows Configuration
+
+### Configuration Paths
+
+The primary native Windows configuration path is:
+
+```text
+%APPDATA%\fetch\config
 ```
 
-Or build a `.deb` package locally:
+Typically:
 
-```bash
-sudo apt install build-essential devscripts debhelper
-dpkg-buildpackage -us -uc -b
-sudo apt install ../fetch_*.deb
+```text
+C:\Users\<username>\AppData\Roaming\fetch\config
 ```
 
-### Gentoo Linux (GURU)
-Maintainer: [@Leb02](https://github.com/Leb02)
+The primary native Windows custom logo path is:
 
-You can install `fetch` from the GURU repository using:
-
-```bash
-eselect repository enable guru
-emaint sync -r guru
-emerge -a app-misc/fetch
+```text
+%APPDATA%\fetch\logo.txt
 ```
 
-As for all GURU packages, you will have to add the package in your `package.accept\_keywords` directory if `~arch` is not already set.
+Typically:
 
-</details>
-
-## Logos
-
-Custom logos: [docs/custom-logos.md](docs/custom-logos.md)
-
-By default it auto-detects your distro and grabs the logo from fastfetch
-(if installed) with its original per-character colors preserved. Works with
-any of fastfetch's 500+ distro logos!
-
-You can also specify one directly:
-
-```
-./fetch -l arch
-./fetch -l NixOS
-./fetch -l asahi
+```text
+C:\Users\<username>\AppData\Roaming\fetch\logo.txt
 ```
 
-Or drop a custom logo in `%APPDATA%\fetch\logo.txt` (Windows) or `~/.config/fetch/logo.txt` (Linux/macOS):
+You can create the directory in PowerShell with:
 
-```
-# distro: gentoo
-         -/oyddmdhs+:.
-     -odNMMMMMMMMNNmhy+-`
-...
+```powershell
+mkdir "$env:APPDATA\fetch"
 ```
 
-Without fastfetch, a built-in Windows ASCII logo is used on Windows, or the built-in Gentoo logo on POSIX. You can also explicitly request the built-in Windows logo with `-l windows` (aliases: `win`, `win11`, `win10`).
+Edit the configuration file:
 
-## System info
-
-All system info is gathered natively with zero external dependencies:
-
-- **OS** - Registry `CurrentVersion` & `RtlGetVersion` (Windows); `/etc/os-release` (Linux); `sysctl` (macOS)
-- **Host** - Registry BIOS hardware info (Windows); `/proc/device-tree/model` or DMI (Linux); `sysctl` (macOS)
-- **Kernel** - Windows NT build (Windows); `uname()` (POSIX)
-- **Uptime** - `GetTickCount64()` (Windows); `/proc/uptime` (Linux); `sysctl` (macOS)
-- **Packages** - winget, Scoop, Chocolatey (Windows); emerge, pacman, dpkg, rpm, xbps, apk, flatpak, brew, nixpkgs (POSIX)
-- **Shell** - Toolhelp32 parent process walk (Windows); parent process inspection (POSIX)
-- **Display** - Win32 `EnumDisplayDevices` & `EnumDisplaySettings` (Windows); DRM enumeration (Linux); Quartz (macOS)
-- **WM** - GlazeWM, komorebi, or DWM (Windows); process scanning + DE-to-WM mapping (Linux/macOS)
-- **Theme/Icons/Font/Cursor** - Registry personalization & console font APIs (Windows); GTK/Qt configs (Linux); `defaults read` (macOS)
-- **CPU** - Registry `CentralProcessor` & `GetNativeSystemInfo` (Windows); `/proc/cpuinfo` (Linux); `sysctl` (macOS)
-- **GPU** - DXGI adapter enumeration with hardware/discrete classification (Windows); DRM + `lspci` (Linux); `system_profiler` (macOS)
-- **Memory/Swap** - `GlobalMemoryStatusEx` (Windows); `/proc/meminfo` (Linux); `vm_stat` (macOS)
-- **Disk** - `GetDiskFreeSpaceEx` & `GetVolumeInformation` (Windows); `statvfs()` (POSIX) – supports multiple mount points via config (`disk=D:\` on Windows, `disk=/home` on POSIX)
-- **Battery** - `GetSystemPowerStatus` (Windows); sysfs battery class (Linux); IOKit (macOS)
-- **Local IP** - `GetAdaptersAddresses` (Windows); `getifaddrs()` (POSIX)
-
-Static system information is gathered once and cached to ensure zero render-loop hitching. Fast-changing fields (uptime, memory, swap) update live every second during animation.
-
-## Config
-
-Full reference: [docs/configuration.md](docs/configuration.md)
-
-Create `%APPDATA%\fetch\config` (Windows) or `~/.config/fetch/config` (Linux/macOS) to customize:
-
+```powershell
+notepad "$env:APPDATA\fetch\config"
 ```
-# fields – list to show, in this order
-# remove or comment out to hide
+
+Edit the custom logo file:
+
+```powershell
+notepad "$env:APPDATA\fetch\logo.txt"
+```
+
+---
+
+## Configuration Fallback Behavior
+
+`fetch` resolves configuration and custom logo files by checking paths in order. The first existing regular file is used.
+
+### Configuration Lookup Order
+
+```text
+%APPDATA%\fetch\config
+        ↓
+%USERPROFILE%\.config\fetch\config
+        ↓
+%HOME%\.config\fetch\config
+```
+
+### Custom Logo Lookup Order
+
+```text
+%APPDATA%\fetch\logo.txt
+        ↓
+%USERPROFILE%\.config\fetch\logo.txt
+        ↓
+%HOME%\.config\fetch\logo.txt
+```
+
+`%APPDATA%\fetch\` is the recommended and native Windows location. Using `.config` is supported as a cross-platform fallback, but Windows users do not need to create or use `.config`.
+
+---
+
+## Configuration Format
+
+The configuration file uses the project's line-oriented `key=value` format (it is **not** JSON or JSONC).
+
+- List field names to show (one per line) in the order you want them displayed.
+- Comment out (with `#`) or omit fields to hide them.
+- Visual and 3D properties are set via `key=value`.
+
+Example `%APPDATA%\fetch\config`:
+
+```ini
+# Fields to display (in order)
 os
 host
 kernel
@@ -243,12 +298,6 @@ packages
 shell
 display
 wm
-displaymanager
-theme
-icons
-font
-cursor
-terminal
 cpu
 gpu
 memory
@@ -256,40 +305,140 @@ swap
 disk
 ip
 battery
-locale
 colors
 
-# extra disks (add more mount points)
-# disk=/home
-# disk=/data
-
-# appearance
-# label_color=magenta   (red, green, yellow, blue, magenta, cyan, white)
-# separator=─           (character for the title separator)
-# shading_mode=ascii    (ascii, or opt into blocks / sextants)
-# shading=.,-~:;=!*#$@  (characters for 3D shading, supports UTF-8)
-# box=0                 (adds a box around the system-data, 0 = off, 1 = on)
-
-# logo colors (override distro defaults)
-# logo_outer=magenta    (extruded side color)
-# logo_inner=white      (front/back face color)
-
-# 3d
-# light=top-left        (top-left, top-right, top, left, right, front, bottom-left, bottom-right)
-# spin=xy               (x, y, or xy)
-# speed=1.0             (rotation speed)
-# size=1.0              (logo scale, e.g. 2.0 for double size)
-# depth=1.0             (3D extrusion depth, e.g. 3.0 for chunkier look)
-# height=36             (override render height in rows)
-# v_alignment=top       (top, center, bottom)
-# h_alignment=left      (left, center, right)
+# Settings
+speed=1.0
+size=1.0
+depth=1.0
+height=0
+shading_mode=ascii
+box=false
 ```
+
+Command-line flags (such as `--speed`, `--size`, `--depth`, `--box`, `--shading-mode`) take precedence over settings defined in the configuration file.
+
+---
+
+## Custom Logo
+
+Full reference: [docs/custom-logos.md](docs/custom-logos.md)
+
+### Windows Built-in Logo & Aliases
+
+On Windows, `fetch` includes a built-in Windows ASCII logo. You can explicitly request it with:
+
+```powershell
+fetch -l windows
+```
+
+The following aliases are recognized for the built-in Windows logo:
+- `windows`
+- `win`
+- `win10`
+- `win11`
+
+When run on Windows without `--logo`, `fetch` automatically uses the built-in Windows logo (or fastfetch logo if fastfetch is installed).
+
+If an explicit, unrelated logo is requested (e.g. `fetch -l arch`), `fetch` attempts to load that logo from fastfetch or matching built-in distro art; explicitly requested logos do not silently fall back to the Windows logo.
+
+### Custom Logo File
+
+Primary Windows path:
+
+```text
+%APPDATA%\fetch\logo.txt
+```
+
+If `%APPDATA%\fetch\logo.txt` does not exist, `fetch` checks the fallback paths (`%USERPROFILE%\.config\fetch\logo.txt` and `%HOME%\.config\fetch\logo.txt`).
+
+Example logo file with distro color scheme:
+
+```text
+# distro: windows
+        ,.=:!!t3Z3z.,
+       :!=eeeeeeNNNEeeTick.
+```
+
+---
+
+## Windows System Information
+
+All system metrics are gathered natively with zero external dependencies and zero external process spawning (`popen`) inside the 20 FPS animation loop:
+
+- **OS** – Windows product name, display version, and build number via Registry
+- **Host** – Hardware manufacturer and model via BIOS Registry
+- **Kernel** – Windows NT build version
+- **Uptime** – System uptime via high-resolution tick counter
+- **CPU** – Processor model, clock speed, and core/thread count
+- **GPU** – GPU adapter model, vendor, and dedicated video memory (VRAM) via DXGI
+- **Memory** – Total and currently used physical RAM via `GlobalMemoryStatusEx`
+- **Swap** – Pagefile size and utilization
+- **Disk** – Drive space and mount paths via volume APIs (supports additional drives via `disk=D:\` in config)
+- **IP / Network** – Active IPv4 and IPv6 network adapters via IP Helper API
+- **Battery** – Charge percentage and charging status via `GetSystemPowerStatus`
+- **Display** – Active display resolution and refresh rate
+- **Shell** – Parent shell process detection (PowerShell, pwsh, CMD) via process snapshot
+- **Terminal** – Terminal host detection (Windows Terminal `wt.exe`, ConHost, etc.)
+- **Theme / Font / Cursor** – System dark/light theme mode, console font name, and cursor configuration
+- **Package Managers** – Installed package counts for detected Windows package managers (winget, Scoop, Chocolatey reported as separate, manager-specific counts; not combined into a single total)
+
+Static metrics are cached once on startup. Dynamic metrics (`uptime`, `memory`, `swap`) refresh in-place every ~1 second (20 frames) during animation.
+
+---
+
+## Package Managers
+
+`fetch` automatically detects and counts installed packages for supported Windows package managers:
+
+- **winget**
+- **Scoop**
+- **Chocolatey**
+
+Counts are strictly **manager-specific** and are displayed individually (e.g. `winget: 45, Scoop: 12, Chocolatey: 3`), rather than summed or combined into a single total. Only installed and detected package managers are shown.
+
+---
+
+## Terminal Support
+
+### Verification Status by Environment
+- **Windows Terminal**: **VERIFIED**
+- **ConHost** (PowerShell / CMD classic console): **VERIFIED**
+- **Linux / macOS terminal environments**: **UNVERIFIED** on the current development host
+
+Only Windows Terminal and ConHost are verified on the development host.
+
+### Supported Behavior
+- **Virtual Terminal Processing**: Automatically enables VT100/ANSI processing and UTF-8 console output (`CP_UTF8`).
+- **Terminal Resize**: Listens for window size changes and dynamically recalculates 3D canvas and layout.
+- **Keyboard Input Passthrough**: Pressing any key terminates animation immediately without consuming the character from the console buffer, allowing instant shell interaction on startup.
+- **Signal-Safe Interruption**: `Ctrl-C` is handled via a native console control handler to immediately and safely exit the render loop.
+- **Terminal Cleanup & Restoration**: Original console modes, cursor visibility, and code pages are reliably restored on exit.
+- **Interactive Mouse Tracking**: Click and drag on the logo to rotate in 3D; releasing flings the model with rotational inertia.
+
+---
+
+## Supported Platforms & Verification Status
+
+```text
+Windows 11 x86_64: VERIFIED
+MinGW-w64: VERIFIED
+Windows Terminal: VERIFIED
+ConHost: VERIFIED
+
+Linux: UNVERIFIED on the current development host
+macOS: UNVERIFIED on the current development host
+```
+
+The POSIX platform backend (`src/platform/platform_posix.c`) and build rules are present in the repository, but native Linux and macOS builds have not been verified on this development environment.
+
+---
 
 ## Options
 
 | Flag | Description |
 |------|-------------|
-| `-l`, `--logo <name>` | Use a logo from fastfetch by name |
+| `-l`, `--logo <name>` | Use a logo from fastfetch or built-in (`windows`, `win`, `win10`, `win11`, `gentoo`) |
 | `--rotate-x` | Lock rotation to X axis only |
 | `--rotate-y` | Lock rotation to Y axis only |
 | `-s`, `--speed <float>` | Speed multiplier (default 1.0) |
@@ -299,14 +448,16 @@ colors
 | `--box` | Draw a border box around the info block |
 | `--no-info` | Just the logo, no system info |
 | `--no-color` | Disable coloring |
-| `--frames <n>` | Stop after n frames |
-| `--infinite` | Run forever |
+| `--frames <n>` | Stop after n frames (default 2000) |
+| `--infinite` | Run forever (until keypress or Ctrl-C) |
 | `--shading-mode <mode>` | `ascii` (default), or opt into sub-cell blocks with `sextants` (2x3) or `blocks` (2x2) |
 | `--shading-chars <str>` | Custom shading ramp, supports UTF-8 |
 | `-h`, `--help` | Show help |
 | `-V`, `--version` | Show version |
 
-CLI flags override config file settings.
+CLI flags override configuration file settings.
+
+---
 
 ## Shading modes
 
@@ -321,59 +472,25 @@ character grid.
 | ![ascii](docs/shading-ascii.png) | ![blocks](docs/shading-blocks.png) | ![sextants](docs/shading-sextants.png) |
 | brightness mapped onto `.,-~:;=!*#$@`, one character per cell | coverage sampled 2×2, edges on quadrants | coverage sampled 2×3, edges on block sextants |
 
-`sextants` needs a terminal that draws the Symbols for Legacy Computing block
-(kitty, Ghostty, foot and WezTerm do it themselves, so the font does not matter);
+`sextants` needs a terminal that draws the Symbols for Legacy Computing block;
 `blocks` works anywhere with a UTF-8 locale.
 
-Same logo, same frame, same terminal palette in all three.
-
-## Contributing
-
-PRs are welcome! If you want to add a feature, fix a bug, or package fetch for
-your distro, go for it. I try to keep the codebase small and easy to understand,
-so smaller PRs are easier to merge than big ones.
-
-If you want to chat about ideas before writing code, reach out on
-[Reddit](https://www.reddit.com/user/areofyl) or open an issue.
+---
 
 ## How it works
 
 For a deep dive with visuals and code, see the [full blog post](https://asdesai.com/blog/how-fetch-works/).
 
-1. **Logo loading** – reads ASCII/Unicode art from `~/.config/fetch/logo.txt` or
-   grabs a distro logo via fastfetch. ANSI color codes are parsed and preserved
-   per-character.
+1. **Logo loading** – reads ASCII/Unicode art from `%APPDATA%\fetch\logo.txt` (Windows) or `~/.config/fetch/logo.txt` (POSIX), built-in logos, or fastfetch. ANSI color codes are parsed and preserved per-character.
 
-2. **Heightmap** – each character gets a weight based on visual density (`@` is
-   heavy, `.` is light, `█` is full, `░` is thin). The weight becomes a Z height,
-   turning the flat logo into a 3D relief map. Logos with low height variance
-   (uniform characters) get their depth auto-scaled so they don't look flat.
+2. **Heightmap** – each character gets a weight based on visual density (`@` is heavy, `.` is light, `█` is full, `░` is thin). The weight becomes a Z height, turning the flat logo into a 3D relief map.
 
-3. **Point cloud** – the heightmap is sampled into 3D points. Interior cells get
-   multiple Z layers for a solid extrusion, edge cells get only front and back
-   faces to keep outlines clean.
+3. **Point cloud** – the heightmap is sampled into 3D points. Interior cells get multiple Z layers for a solid extrusion, edge cells get only front and back faces to keep outlines clean.
 
-4. **Surface normals** – computed from the height gradient at each cell using
-   finite differences, giving each point a direction for lighting.
+4. **Surface normals** – computed from the height gradient at each cell using finite differences, giving each point a direction for lighting.
 
-5. **Rotation + projection** – every frame, all points are rotated around X/Y
-   axes, then perspective-projected onto the terminal grid with a z-buffer to
-   handle occlusion.
+5. **Rotation + projection** – every frame, all points are rotated around X/Y axes, then perspective-projected onto the terminal grid with a z-buffer to handle occlusion.
 
-6. **Shading** – Blinn-Phong lighting (diffuse + specular) gives every visible
-   point a brightness, which maps onto the `.,-~:;=!*#$@` ramp, one character
-   per cell. `--shading-mode sextants` or `blocks` instead samples coverage
-   finer than the character cell – 2×3 or 2×2 – and each cell picks whichever
-   glyph carries the right amount of ink: a shade block (`░▒▓█`) where the cell
-   is filled, a partial block where the silhouette cuts through it. So an edge
-   lands on a fraction of a cell instead of snapping to the character grid.
+6. **Shading** – Blinn-Phong lighting (diffuse + specular) gives every visible point a brightness, which maps onto the `.,-~:;=!*#$@` ramp, one character per cell. `--shading-mode sextants` or `blocks` samples coverage finer than the character cell (2×3 or 2×2).
 
-   Logos that ship their own colors keep them. The rest are two-toned by
-   surface: front and back faces in `logo_inner`, extruded sides in
-   `logo_outer`.
-
-7. **Rendering** – the entire frame is written in a single `write()` syscall to
-   avoid flicker. System info is displayed alongside the animation and
-   fast-changing fields (uptime, memory, swap) update live every second.
-
-Single file C, no dependencies beyond libm.
+7. **Rendering** – the entire frame is written in a single atomic buffer write to avoid flicker. System info is displayed alongside the animation and fast-changing fields (uptime, memory, swap) update live every second.
